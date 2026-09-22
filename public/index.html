@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PulseNews — Daily Global News & Insights</title>
+  <meta name="description" content="Stay informed with real-time news across Sports, Politics, Technology, Business, Entertainment, and Education.">
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- Favicon & Touch Icons -->
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <meta name="theme-color" content="#0a0e17">
+
+  <!-- Theme Detection & FOUC Prevention -->
+  <script>
+    (function() {
+      var saved = localStorage.getItem('pulsenews_theme');
+      var theme = saved || (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+      document.documentElement.setAttribute('data-theme', theme);
+      var meta = document.querySelector('meta[name="theme-color"]');
+      if (meta) meta.setAttribute('content', theme === 'light' ? '#f8fafc' : '#0a0e17');
+    })();
+  </script>
+
+  <!-- Auth Guard: Redirect unauthenticated visitors to /login -->
+  <script>
+    (function() {
+      if (!localStorage.getItem('pulsenews_token')) {
+        var current = window.location.pathname + window.location.search;
+        window.location.replace('/login?redirect=' + encodeURIComponent(current));
+      }
+    })();
+  </script>
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+  <!-- Top Glass Header -->
+  <header class="header">
+    <div class="header-container">
+      <a href="/" class="brand-logo" id="brand-logo-link">
+        <div class="logo-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Zm0 0a2 2 0 0 1-2-2v-9c0-1.1.9-2 2-2h2"></path>
+            <path d="M18 14h-8"></path>
+            <path d="M15 18h-5"></path>
+            <path d="M10 6h8v4h-8z"></path>
+          </svg>
+        </div>
+        <span>Pulse<span>News</span></span>
+      </a>
+
+      <!-- Region & Native Language Edition Selector -->
+      <div class="edition-selector-wrapper">
+        <div class="edition-icon" title="Choose Regional Edition & Native Language">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="2" y1="12" x2="22" y2="12"></line>
+            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+          </svg>
+        </div>
+        <select id="edition-select" class="edition-select" aria-label="Select Region and Native Language Edition">
+          <option value="en-us" selected>🇺🇸 Global (English)</option>
+          <option value="ta-in">🇮🇳 Tamil Nadu (தமிழ்)</option>
+          <option value="ml-in">🇮🇳 Kerala (മലയാളം)</option>
+          <option value="en-gb">🇬🇧 UK (English)</option>
+          <option value="de-de">🇩🇪 Germany (Deutsch)</option>
+          <option value="hi-in">🇮🇳 India (हिन्दी)</option>
+          <option value="te-in">🇮🇳 Telugu (తెలుగు)</option>
+          <option value="fr-fr">🇫🇷 France (Français)</option>
+          <option value="es-es">🇪🇸 Spain (Español)</option>
+          <option value="ja-jp">🇯🇵 Japan (日本語)</option>
+          <option value="ar-ae">🇦🇪 Arabic (العربية)</option>
+          <option value="it-it">🇮🇹 Italy (Italiano)</option>
+          <option value="ru-ru">🇷🇺 Russia (Русский)</option>
+          <option value="zh-cn">🇨🇳 China (中文)</option>
+        </select>
+      </div>
+
+      <!-- Search Bar -->
+      <div class="search-container">
+        <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+        <input 
+          type="text" 
+          id="search-input" 
+          class="search-input" 
+          placeholder="Search by title, topic, or keyword..."
+          autocomplete="off"
+        >
+        <button id="clear-search-btn" class="clear-search-btn" aria-label="Clear search">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+
+      <!-- User Profile / Auth Pill -->
+      <div id="header-user-container" class="header-user-container"></div>
+
+      <!-- Theme Switcher (Light / Dark Mode) -->
+      <button id="theme-toggle-btn" class="theme-toggle-btn" aria-label="Switch to Light Mode" title="Switch to Light Mode">
+        <!-- Sun Icon (for dark mode) -->
+        <svg class="sun-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="5"></circle>
+          <line x1="12" y1="1" x2="12" y2="3"></line>
+          <line x1="12" y1="21" x2="12" y2="23"></line>
+          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+          <line x1="1" y1="12" x2="3" y2="12"></line>
+          <line x1="21" y1="12" x2="23" y2="12"></line>
+          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+        </svg>
+        <!-- Moon Icon (for light mode) -->
+        <svg class="moon-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- Category Nav Bar -->
+  <nav class="category-nav-wrapper">
+    <div class="category-nav" id="category-nav">
+      <button class="category-btn active" data-category="all">All News</button>
+      <button class="category-btn" data-category="Sports">Sports</button>
+      <button class="category-btn" data-category="Politics">Politics</button>
+      <button class="category-btn" data-category="Technology">Technology</button>
+      <button class="category-btn" data-category="Business">Business</button>
+      <button class="category-btn" data-category="Entertainment">Entertainment</button>
+      <button class="category-btn" data-category="Education">Education</button>
+    </div>
+  </nav>
+
+  <!-- Main Content -->
+  <main class="main-content">
+    <div class="status-bar">
+      <div class="status-left">
+        <h1 class="section-title" id="section-title">Latest Headlines</h1>
+        <div class="live-status-pill">
+          <span class="live-dot"></span>
+          <span class="live-text">LIVE WORLDWIDE</span>
+        </div>
+      </div>
+      <div class="status-right">
+        <span class="result-count" id="result-count">Loading live news...</span>
+        <button id="refresh-btn" class="refresh-action-btn" title="Refresh breaking news feeds">
+          <svg class="refresh-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 4 23 10 17 10"></polyline>
+            <polyline points="1 20 1 14 7 14"></polyline>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+          </svg>
+          <span>Refresh</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- News Cards Container -->
+    <div class="news-grid" id="news-grid">
+      <!-- Skeleton Loading Cards generated dynamically -->
+    </div>
+
+    <!-- Error / Empty State Container -->
+    <div id="state-container" class="state-container" style="display: none;"></div>
+
+    <!-- Pagination -->
+    <div class="pagination" id="pagination-container"></div>
+  </main>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="footer-content">
+      <p>© 2026 PulseNews Media. Powered by PostgreSQL & Vanilla JS.</p>
+    </div>
+  </footer>
+
+  <!-- Modular Scripts -->
+  <script src="/js/theme.js"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/api.js"></script>
+  <script src="/js/ui.js"></script>
+  <script src="/js/main.js"></script>
+</body>
+</html>

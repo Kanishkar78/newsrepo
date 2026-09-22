@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign In & Sign Up — PulseNews</title>
+  <meta name="description" content="Sign in or create your account to access live worldwide news and personalized regional editions on PulseNews.">
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- Favicon & Touch Icons -->
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <meta name="theme-color" content="#0a0e17">
+
+  <!-- Theme Detection & FOUC Prevention -->
+  <script>
+    (function() {
+      var saved = localStorage.getItem('pulsenews_theme');
+      var theme = saved || (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+      document.documentElement.setAttribute('data-theme', theme);
+      var meta = document.querySelector('meta[name="theme-color"]');
+      if (meta) meta.setAttribute('content', theme === 'light' ? '#f8fafc' : '#0a0e17');
+      
+      // If already authenticated, redirect to destination immediately
+      if (localStorage.getItem('pulsenews_token')) {
+        var params = new URLSearchParams(window.location.search);
+        var target = params.get('redirect') || '/';
+        window.location.replace(target);
+      }
+    })();
+  </script>
+
+  <!-- Master Styles -->
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body class="auth-page">
+
+  <!-- Minimal Header -->
+  <header class="header auth-header">
+    <div class="header-container auth-header-container">
+      <a href="/" class="brand-logo" id="brand-logo-link">
+        <div class="logo-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Zm0 0a2 2 0 0 1-2-2v-9c0-1.1.9-2 2-2h2"></path>
+            <path d="M18 14h-8"></path>
+            <path d="M15 18h-5"></path>
+            <path d="M10 6h8v4h-8z"></path>
+          </svg>
+        </div>
+        <span>Pulse<span>News</span></span>
+      </a>
+
+      <!-- Theme Switcher -->
+      <button id="theme-toggle-btn" class="theme-toggle-btn" aria-label="Switch to Light Mode" title="Switch to Light Mode">
+        <svg class="sun-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="5"></circle>
+          <line x1="12" y1="1" x2="12" y2="3"></line>
+          <line x1="12" y1="21" x2="12" y2="23"></line>
+          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+          <line x1="1" y1="12" x2="3" y2="12"></line>
+          <line x1="21" y1="12" x2="23" y2="12"></line>
+          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+        </svg>
+        <svg class="moon-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- Auth Main Hero & Glass Card -->
+  <main class="auth-main">
+    <div class="auth-card-container">
+      
+      <!-- Ambient Glow Orbs -->
+      <div class="glow-orb orb-1"></div>
+      <div class="glow-orb orb-2"></div>
+
+      <div class="auth-card">
+        <!-- Card Header -->
+        <div class="auth-card-header">
+          <div class="auth-badge">
+            <span class="auth-badge-dot"></span>
+            <span>SECURE ACCESS</span>
+          </div>
+          <h1 class="auth-title" id="auth-title">Welcome Back</h1>
+          <p class="auth-subtitle" id="auth-subtitle">Sign in to explore daily live news, regional editions, and instant translations.</p>
+        </div>
+
+        <!-- Tab Toggle Buttons -->
+        <div class="auth-tabs" role="tablist">
+          <button class="auth-tab active" id="tab-login" role="tab" aria-selected="true">
+            Sign In
+          </button>
+          <button class="auth-tab" id="tab-signup" role="tab" aria-selected="false">
+            Create Account
+          </button>
+        </div>
+
+        <!-- Alert Notification Box -->
+        <div id="auth-alert" class="auth-alert" style="display: none;" role="alert">
+          <svg class="alert-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="8" x2="12" y2="12"></line>
+            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+          </svg>
+          <span id="auth-alert-text"></span>
+        </div>
+
+        <!-- SIGN IN FORM -->
+        <form id="login-form" class="auth-form active" novalidate>
+          <div class="form-group">
+            <label for="login-email">Email Address</label>
+            <div class="input-wrapper">
+              <svg class="input-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
+                <polyline points="22,6 12,13 2,6"></polyline>
+              </svg>
+              <input 
+                type="email" 
+                id="login-email" 
+                class="form-input" 
+                placeholder="name@example.com" 
+                required 
+                autocomplete="email"
+              >
+            </div>
+          </div>
+
+          <div class="form-group">
+            <div class="label-row">
+              <label for="login-password">Password</label>
+            </div>
+            <div class="input-wrapper">
+              <svg class="input-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+              </svg>
+              <input 
+                type="password" 
+                id="login-password" 
+                class="form-input" 
+                placeholder="Enter your password" 
+                required 
+                autocomplete="current-password"
+              >
+              <button type="button" class="toggle-password-btn" title="Show/Hide Password" aria-label="Toggle password visibility">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                  <circle cx="12" cy="12" r="3"></circle>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <button type="submit" id="login-submit-btn" class="auth-submit-btn">
+            <span class="btn-text">Sign In to PulseNews</span>
+            <div class="btn-spinner" style="display: none;"></div>
+          </button>
+        </form>
+
+        <!-- SIGN UP FORM -->
+        <form id="signup-form" class="auth-form" style="display: none;" novalidate>
+          <div class="form-group">
+            <label for="signup-name">Full Name</label>
+            <div class="input-wrapper">
+              <svg class="input-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                <circle cx="12" cy="7" r="4"></circle>
+              </svg>
+              <input 
+                type="text" 
+                id="signup-name" 
+                class="form-input" 
+                placeholder="e.g. Manikandan" 
+                required 
+                autocomplete="name"
+              >
+            </div>
+            <div id="signup-name-hint" class="input-hint" style="display: none;"></div>
+          </div>
+
+          <div class="form-group">
+            <label for="signup-email">Email Address</label>
+            <div class="input-wrapper">
+              <svg class="input-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
+                <polyline points="22,6 12,13 2,6"></polyline>
+              </svg>
+              <input 
+                type="email" 
+                id="signup-email" 
+                class="form-input" 
+                placeholder="name@example.com" 
+                required 
+                autocomplete="email"
+              >
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="signup-password">Password</label>
+            <div class="input-wrapper">
+              <svg class="input-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+              </svg>
+              <input 
+                type="password" 
+                id="signup-password" 
+                class="form-input" 
+                placeholder="At least 8 characters with rules" 
+                required 
+                autocomplete="new-password"
+              >
+              <button type="button" class="toggle-password-btn" title="Show/Hide Password" aria-label="Toggle password visibility">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                  <circle cx="12" cy="12" r="3"></circle>
+                </svg>
+              </button>
+            </div>
+
+            <!-- Interactive Password Strength & Security Rules Widget -->
+            <div class="password-strength-widget" id="password-strength-widget">
+              <div class="strength-header">
+                <span class="strength-title">Password Strength:</span>
+                <span class="strength-badge empty" id="strength-badge">Enter password</span>
+              </div>
+              <div class="strength-meter-bar" aria-hidden="true">
+                <div class="strength-segment" id="seg-1"></div>
+                <div class="strength-segment" id="seg-2"></div>
+                <div class="strength-segment" id="seg-3"></div>
+                <div class="strength-segment" id="seg-4"></div>
+              </div>
+              <div class="password-rules-list">
+                <div class="rule-item" id="rule-length">
+                  <span class="rule-icon">○</span>
+                  <span>8+ characters</span>
+                </div>
+                <div class="rule-item" id="rule-upper">
+                  <span class="rule-icon">○</span>
+                  <span>Uppercase (A-Z)</span>
+                </div>
+                <div class="rule-item" id="rule-lower">
+                  <span class="rule-icon">○</span>
+                  <span>Lowercase (a-z)</span>
+                </div>
+                <div class="rule-item" id="rule-number">
+                  <span class="rule-icon">○</span>
+                  <span>Number (0-9)</span>
+                </div>
+                <div class="rule-item" id="rule-special">
+                  <span class="rule-icon">○</span>
+                  <span>Symbol (!@#$...)</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="signup-confirm-password">Confirm Password</label>
+            <div class="input-wrapper">
+              <svg class="input-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                <polyline points="22 4 12 14.01 9 11.01"></polyline>
+              </svg>
+              <input 
+                type="password" 
+                id="signup-confirm-password" 
+                class="form-input" 
+                placeholder="Re-enter your password" 
+                required 
+                autocomplete="new-password"
+              >
+            </div>
+            <div id="signup-confirm-hint" class="input-hint" style="display: none;"></div>
+          </div>
+
+          <button type="submit" id="signup-submit-btn" class="auth-submit-btn">
+            <span class="btn-text">Create Free Account</span>
+            <div class="btn-spinner" style="display: none;"></div>
+          </button>
+        </form>
+
+        <!-- Card Footer -->
+        <div class="auth-card-footer">
+          <p id="switch-mode-text">
+            Don't have an account yet? 
+            <a href="#" id="switch-to-signup">Sign up free</a>
+          </p>
+        </div>
+
+      </div>
+    </div>
+  </main>
+
+  <!-- Scripts -->
+  <script src="/js/theme.js"></script>
+  <script src="/js/auth.js"></script>
+  <script>
+    (function() {
+      // DOM Elements
+      const tabLogin = document.getElementById('tab-login');
+      const tabSignup = document.getElementById('tab-signup');
+      const loginForm = document.getElementById('login-form');
+      const signupForm = document.getElementById('signup-form');
+      const authTitle = document.getElementById('auth-title');
+      const authSubtitle = document.getElementById('auth-subtitle');
+      const switchModeText = document.getElementById('switch-mode-text');
+      const authAlert = document.getElementById('auth-alert');
+      const authAlertText = document.getElementById('auth-alert-text');
+
+      const urlParams = new URLSearchParams(window.location.search);
+      const redirectUrl = urlParams.get('redirect') || '/';
+
+      // Switch Tab Function
+      function setTab(mode) {
+        hideAlert();
+        if (mode === 'signup') {
+          tabLogin.classList.remove('active');
+          tabSignup.classList.add('active');
+          loginForm.style.display = 'none';
+          signupForm.style.display = 'flex';
+          authTitle.textContent = 'Create an Account';
+          authSubtitle.textContent = 'Join PulseNews to read global stories in your native language.';
+          switchModeText.innerHTML = 'Already have an account? <a href="#" id="switch-to-login">Sign in</a>';
+          document.getElementById('switch-to-login').addEventListener('click', (e) => {
+            e.preventDefault();
+            setTab('login');
+          });
+        } else {
+          tabSignup.classList.remove('active');
+          tabLogin.classList.add('active');
+          signupForm.style.display = 'none';
+          loginForm.style.display = 'flex';
+          authTitle.textContent = 'Welcome Back';
+          authSubtitle.textContent = 'Sign in to explore daily live news, regional editions, and instant translations.';
+          switchModeText.innerHTML = "Don't have an account yet? <a href=\"#\" id=\"switch-to-signup\">Sign up free</a>";
+          document.getElementById('switch-to-signup').addEventListener('click', (e) => {
+            e.preventDefault();
+            setTab('signup');
+          });
+        }
+      }
+
+      tabLogin.addEventListener('click', () => setTab('login'));
+      tabSignup.addEventListener('click', () => setTab('signup'));
+
+      const initialTab = urlParams.get('tab') === 'signup' ? 'signup' : 'login';
+      setTab(initialTab);
+
+      // Password Toggle Visibility
+      document.querySelectorAll('.toggle-password-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const input = btn.previousElementSibling;
+          if (input.type === 'password') {
+            input.type = 'text';
+            btn.classList.add('visible');
+          } else {
+            input.type = 'password';
+            btn.classList.remove('visible');
+          }
+        });
+      });
+
+      function showAlert(msg, isSuccess = false) {
+        authAlertText.textContent = msg;
+        authAlert.style.display = 'flex';
+        if (isSuccess) {
+          authAlert.classList.add('success');
+        } else {
+          authAlert.classList.remove('success');
+        }
+      }
+
+      function hideAlert() {
+        authAlert.style.display = 'none';
+      }
+
+      function setLoading(btn, isLoading) {
+        const text = btn.querySelector('.btn-text');
+        const spinner = btn.querySelector('.btn-spinner');
+        btn.disabled = isLoading;
+        if (isLoading) {
+          text.style.opacity = '0';
+          spinner.style.display = 'block';
+        } else {
+          text.style.opacity = '1';
+          spinner.style.display = 'none';
+        }
+      }
+
+      // Handle Sign In Submit
+      loginForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        hideAlert();
+
+        const email = document.getElementById('login-email').value.trim();
+        const password = document.getElementById('login-password').value;
+        const submitBtn = document.getElementById('login-submit-btn');
+
+        if (!email || !password) {
+          showAlert('Please enter both your email and password.');
+          return;
+        }
+
+        setLoading(submitBtn, true);
+
+        try {
+          await PulseAuth.login({ email, password });
+          showAlert('Signed in successfully! Redirecting...', true);
+          setTimeout(() => {
+            window.location.href = redirectUrl;
+          }, 400);
+        } catch (err) {
+          showAlert(err.message || 'Invalid email or password.');
+          setLoading(submitBtn, false);
+        }
+      });
+
+      // Elements for Sign Up Validation & Password Strength
+      const signupName = document.getElementById('signup-name');
+      const signupNameHint = document.getElementById('signup-name-hint');
+      const signupPassword = document.getElementById('signup-password');
+      const signupConfirmPassword = document.getElementById('signup-confirm-password');
+      const signupConfirmHint = document.getElementById('signup-confirm-hint');
+
+      const strengthBadge = document.getElementById('strength-badge');
+      const seg1 = document.getElementById('seg-1');
+      const seg2 = document.getElementById('seg-2');
+      const seg3 = document.getElementById('seg-3');
+      const seg4 = document.getElementById('seg-4');
+      const allSegments = [seg1, seg2, seg3, seg4];
+
+      const ruleLength = document.getElementById('rule-length');
+      const ruleUpper = document.getElementById('rule-upper');
+      const ruleLower = document.getElementById('rule-lower');
+      const ruleNumber = document.getElementById('rule-number');
+      const ruleSpecial = document.getElementById('rule-special');
+
+      // Real-time Name Validation (Letters only, strictly NO numbers)
+      function validateNameField() {
+        const val = signupName.value;
+        if (!val) {
+          signupNameHint.style.display = 'none';
+          signupName.classList.remove('input-invalid');
+          return true;
+        }
+
+        if (/[0-9]/.test(val)) {
+          signupNameHint.textContent = '⚠️ Numbers are not allowed in name. Please use letters only.';
+          signupNameHint.className = 'input-hint error';
+          signupNameHint.style.display = 'block';
+          signupName.classList.add('input-invalid');
+          return false;
+        }
+
+        if (!/^[A-Za-z\s'\-\.]+$/.test(val)) {
+          signupNameHint.textContent = '⚠️ Name can only contain alphabetic letters and spaces.';
+          signupNameHint.className = 'input-hint error';
+          signupNameHint.style.display = 'block';
+          signupName.classList.add('input-invalid');
+          return false;
+        }
+
+        signupNameHint.style.display = 'none';
+        signupName.classList.remove('input-invalid');
+        return true;
+      }
+
+      signupName.addEventListener('input', validateNameField);
+
+      // Real-time Password Strength & Rule Evaluator
+      function updateRuleUI(el, isValid) {
+        const icon = el.querySelector('.rule-icon');
+        if (isValid) {
+          el.classList.add('valid');
+          icon.textContent = '✓';
+        } else {
+          el.classList.remove('valid');
+          icon.textContent = '○';
+        }
+      }
+
+      function evaluatePasswordStrength(pwd) {
+        const hasLength = pwd.length >= 8;
+        const hasUpper = /[A-Z]/.test(pwd);
+        const hasLower = /[a-z]/.test(pwd);
+        const hasNumber = /[0-9]/.test(pwd);
+        const hasSpecial = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?~`]/.test(pwd);
+
+        updateRuleUI(ruleLength, hasLength);
+        updateRuleUI(ruleUpper, hasUpper);
+        updateRuleUI(ruleLower, hasLower);
+        updateRuleUI(ruleNumber, hasNumber);
+        updateRuleUI(ruleSpecial, hasSpecial);
+
+        // Reset segments
+        allSegments.forEach(seg => {
+          seg.className = 'strength-segment';
+        });
+
+        if (!pwd) {
+          strengthBadge.textContent = 'Enter password';
+          strengthBadge.className = 'strength-badge empty';
+          return { score: 0, meetsAll: false, label: 'empty' };
+        }
+
+        let score = 0;
+        if (hasLength) score++;
+        if (hasUpper) score++;
+        if (hasLower) score++;
+        if (hasNumber) score++;
+        if (hasSpecial) score++;
+
+        const meetsAll = hasLength && hasUpper && hasLower && hasNumber && hasSpecial;
+
+        if (score <= 2 || !hasLength) {
+          strengthBadge.textContent = 'Weak';
+          strengthBadge.className = 'strength-badge weak';
+          seg1.classList.add('active', 'weak');
+          return { score, meetsAll, label: 'weak' };
+        } else if (score === 3) {
+          strengthBadge.textContent = 'Fair';
+          strengthBadge.className = 'strength-badge fair';
+          seg1.classList.add('active', 'fair');
+          seg2.classList.add('active', 'fair');
+          return { score, meetsAll, label: 'fair' };
+        } else if (score === 4) {
+          strengthBadge.textContent = 'Good';
+          strengthBadge.className = 'strength-badge good';
+          seg1.classList.add('active', 'good');
+          seg2.classList.add('active', 'good');
+          seg3.classList.add('active', 'good');
+          return { score, meetsAll, label: 'good' };
+        } else {
+          // All 5 rules satisfied
+          const label = pwd.length >= 12 ? 'Very Strong' : 'Strong';
+          strengthBadge.textContent = label;
+          strengthBadge.className = 'strength-badge strong';
+          allSegments.forEach(seg => seg.classList.add('active', 'strong'));
+          return { score, meetsAll: true, label: 'strong' };
+        }
+      }
+
+      signupPassword.addEventListener('input', () => {
+        evaluatePasswordStrength(signupPassword.value);
+        checkPasswordMatch();
+      });
+
+      // Real-time Confirm Password Matching
+      function checkPasswordMatch() {
+        const pwd = signupPassword.value;
+        const confirm = signupConfirmPassword.value;
+
+        if (!confirm) {
+          signupConfirmHint.style.display = 'none';
+          signupConfirmPassword.classList.remove('input-invalid');
+          return true;
+        }
+
+        if (pwd !== confirm) {
+          signupConfirmHint.textContent = '⚠️ Passwords do not match';
+          signupConfirmHint.className = 'input-hint error';
+          signupConfirmHint.style.display = 'block';
+          signupConfirmPassword.classList.add('input-invalid');
+          return false;
+        } else {
+          signupConfirmHint.textContent = '✓ Passwords match';
+          signupConfirmHint.className = 'input-hint success';
+          signupConfirmHint.style.display = 'block';
+          signupConfirmPassword.classList.remove('input-invalid');
+          return true;
+        }
+      }
+
+      signupConfirmPassword.addEventListener('input', checkPasswordMatch);
+
+      // Handle Sign Up Submit
+      signupForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        hideAlert();
+
+        const name = signupName.value.trim();
+        const email = document.getElementById('signup-email').value.trim();
+        const password = signupPassword.value;
+        const confirmPassword = signupConfirmPassword.value;
+        const submitBtn = document.getElementById('signup-submit-btn');
+
+        // 1. Name Validation (Letters only, no numbers)
+        if (!name || name.length < 2) {
+          showAlert('Please enter your full name (at least 2 characters).');
+          signupName.focus();
+          return;
+        }
+
+        if (/[0-9]/.test(name)) {
+          showAlert('Name cannot contain numbers. Please use letters only.');
+          signupName.focus();
+          return;
+        }
+
+        if (!/^[A-Za-z\s'\-\.]+$/.test(name)) {
+          showAlert('Name can only contain alphabetic letters and spaces.');
+          signupName.focus();
+          return;
+        }
+
+        // 2. Email Validation
+        if (!email || !email.includes('@')) {
+          showAlert('Please enter a valid email address.');
+          return;
+        }
+
+        // 3. Password Security Rules Validation
+        if (password.length < 8) {
+          showAlert('Password must be at least 8 characters long.');
+          signupPassword.focus();
+          return;
+        }
+
+        if (!/[A-Z]/.test(password)) {
+          showAlert('Password must contain at least one uppercase letter (A-Z).');
+          signupPassword.focus();
+          return;
+        }
+
+        if (!/[a-z]/.test(password)) {
+          showAlert('Password must contain at least one lowercase letter (a-z).');
+          signupPassword.focus();
+          return;
+        }
+
+        if (!/[0-9]/.test(password)) {
+          showAlert('Password must contain at least one number (0-9).');
+          signupPassword.focus();
+          return;
+        }
+
+        if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?~`]/.test(password)) {
+          showAlert('Password must contain at least one special symbol (!@#$%^&* etc.).');
+          signupPassword.focus();
+          return;
+        }
+
+        // 4. Confirm Password Match Validation
+        if (password !== confirmPassword) {
+          showAlert('Passwords do not match. Please re-enter.');
+          signupConfirmPassword.focus();
+          return;
+        }
+
+        setLoading(submitBtn, true);
+
+        try {
+          await PulseAuth.register({ name, email, password });
+          showAlert('Account created! Welcome to PulseNews...', true);
+          setTimeout(() => {
+            window.location.href = redirectUrl;
+          }, 400);
+        } catch (err) {
+          showAlert(err.message || 'Registration failed.');
+          setLoading(submitBtn, false);
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

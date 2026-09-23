@@ -3,6 +3,8 @@
  * Multi-region, native-language news aggregation & instant translation engine.
  */
 
+const { generateFullArticleContent } = require('./articleContentService');
+
 // Curated high-resolution editorial imagery per category
 const CATEGORY_IMAGES = {
   technology: [
@@ -285,11 +287,33 @@ function parseRssXml(xml, defaultCategory = 'All', editionInfo = null) {
     }
 
     let description = cleanText(getTag('description'));
-    if (!description || description.length < 30 || description.startsWith(title) || description.includes('View Full Coverage')) {
-      description = `Live report: "${title}". Real-time updates, local context, and developments reported by ${source}.`;
+    const isTa = /[\u0B80-\u0BFF]/.test(title) || (editionInfo && editionInfo.code === 'ta-in');
+    const isMl = /[\u0D00-\u0D7F]/.test(title) || (editionInfo && editionInfo.code === 'ml-in');
+    const isHi = /[\u0900-\u097F]/.test(title) || (editionInfo && editionInfo.code === 'hi-in');
+    const isTe = /[\u0C00-\u0C7F]/.test(title) || (editionInfo && editionInfo.code === 'te-in');
+
+    if (!description || description.length < 30 || description.startsWith(title) || description.includes('View Full Coverage') || ((isTa || isMl || isHi || isTe) && (description.match(/[a-zA-Z]{4,}/g) || []).length > 3)) {
+      if (isTa) {
+        description = `${source} வழங்கும் நேரடிச் செய்தி: "${title}". கள நிலவரம் மற்றும் முக்கிய நிகழ்வுகளின் நேரடித் தொகுப்பு.`;
+      } else if (isMl) {
+        description = `${source} റിപ്പോർട്ട് ചെയ്യുന്ന വാർത്തകൾ: "${title}". തത്സമയ വിവരങ്ങളും പുതിയ സംഭവവികാസങ്ങളും.`;
+      } else if (isHi) {
+        description = `${source} द्वारा विशेष रिपोर्ट: "${title}". ताजा घटनाक्रम और मुख्य समाचारों का लाइव विवरण.`;
+      } else if (isTe) {
+        description = `${source} తాజా వార్త: "${title}". క్షేత్రస్థాయి పరిణామాలు మరియు ముఖ్యాంశాలు.`;
+      } else {
+        description = `Live report: "${title}". Real-time updates, local context, and developments reported by ${source}.`;
+      }
     }
 
-    const content = `${description}\n\nThis story is curated directly from the ${source} newsroom. Journalists continue to track statements, local reports, and official reactions as this story develops.\n\nTo view the full original reporting and multimedia, click the official publisher link below.`;
+    const content = generateFullArticleContent({
+      title,
+      description,
+      category: defaultCategory,
+      source,
+      author: source,
+      publishedAt
+    });
 
     const imageUrl = extractImage(itemXml, defaultCategory, idx);
     const id = generateNumericId(link || title);
@@ -340,42 +364,99 @@ async function fetchWithTimeout(url, timeoutMs = 8000) {
 }
 
 /**
- * Build feed URLs for a specific regional edition and category
+ * Build feed targets for a specific regional edition and category.
+ * When category is 'all', returns target URLs for every category (World, Technology, Sports, Politics, Business, Entertainment, Education)
+ * so 'All News' shows comprehensive coverage from every section.
  */
-function buildFeedUrls(editionConfig, category) {
+function buildFeedTargets(editionConfig, category) {
   const { hl, gl, ceid } = editionConfig;
   const catKey = (category || 'all').toLowerCase();
 
   if (catKey === 'all') {
-    const urls = [`https://news.google.com/rss?hl=${hl}&gl=${gl}&ceid=${ceid}`];
+    const targets = [
+      { url: `https://news.google.com/rss?hl=${hl}&gl=${gl}&ceid=${ceid}`, categoryName: 'World' },
+      { url: `https://news.google.com/rss/headlines/section/topic/TECHNOLOGY?hl=${hl}&gl=${gl}&ceid=${ceid}`, categoryName: 'Technology' },
+      { url: `https://news.google.com/rss/headlines/section/topic/SPORTS?hl=${hl}&gl=${gl}&ceid=${ceid}`, categoryName: 'Sports' },
+      { url: `https://news.google.com/rss/headlines/section/topic/POLITICS?hl=${hl}&gl=${gl}&ceid=${ceid}`, categoryName: 'Politics' },
+      { url: `https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=${hl}&gl=${gl}&ceid=${ceid}`, categoryName: 'Business' },
+      { url: `https://news.google.com/rss/headlines/section/topic/ENTERTAINMENT?hl=${hl}&gl=${gl}&ceid=${ceid}`, categoryName: 'Entertainment' },
+      { url: `https://news.google.com/rss/search?q=${encodeURIComponent('education schools university')}+when:7d&hl=${hl}&gl=${gl}&ceid=${ceid}`, categoryName: 'Education' }
+    ];
+
     if (editionConfig.code === 'en-us') {
-      urls.push('https://feeds.bbci.co.uk/news/world/rss.xml');
+      targets.push({ url: 'https://feeds.bbci.co.uk/news/world/rss.xml', categoryName: 'World' });
     } else if (editionConfig.code === 'en-gb') {
-      urls.push('https://feeds.bbci.co.uk/news/rss.xml');
+      targets.push({ url: 'https://feeds.bbci.co.uk/news/rss.xml', categoryName: 'World' });
     }
-    return urls;
+    return targets;
   }
 
-  // Topic mapping
+  // Topic mapping for specific category
   const topicMap = {
-    technology: 'TECHNOLOGY',
-    sports: 'SPORTS',
-    business: 'BUSINESS',
-    entertainment: 'ENTERTAINMENT',
-    politics: 'POLITICS'
+    technology: { topic: 'TECHNOLOGY', name: 'Technology' },
+    sports: { topic: 'SPORTS', name: 'Sports' },
+    business: { topic: 'BUSINESS', name: 'Business' },
+    entertainment: { topic: 'ENTERTAINMENT', name: 'Entertainment' },
+    politics: { topic: 'POLITICS', name: 'Politics' }
   };
 
   if (topicMap[catKey]) {
-    return [
-      `https://news.google.com/rss/headlines/section/topic/${topicMap[catKey]}?hl=${hl}&gl=${gl}&ceid=${ceid}`
-    ];
+    return [{
+      url: `https://news.google.com/rss/headlines/section/topic/${topicMap[catKey].topic}?hl=${hl}&gl=${gl}&ceid=${ceid}`,
+      categoryName: topicMap[catKey].name
+    }];
   }
 
   // Education / custom category searches
   const query = catKey === 'education' ? 'education schools university' : catKey;
-  return [
-    `https://news.google.com/rss/search?q=${encodeURIComponent(query)}+when:7d&hl=${hl}&gl=${gl}&ceid=${ceid}`
-  ];
+  const displayName = catKey === 'education' ? 'Education' : (category.charAt(0).toUpperCase() + category.slice(1));
+  return [{
+    url: `https://news.google.com/rss/search?q=${encodeURIComponent(query)}+when:7d&hl=${hl}&gl=${gl}&ceid=${ceid}`,
+    categoryName: displayName
+  }];
+}
+
+/**
+ * Helper to interleave top stories from every category for 'All News'
+ * so users see a vibrant variety across Technology, Sports, Politics, etc. on the initial pages
+ */
+function balanceArticlesByCategory(articles) {
+  if (!articles || articles.length <= 1) return articles;
+
+  const groups = {};
+  for (const art of articles) {
+    const cat = art.category || 'World';
+    if (!groups[cat]) groups[cat] = [];
+    groups[cat].push(art);
+  }
+
+  const balanced = [];
+  const catNames = Object.keys(groups);
+  let round = 0;
+  let hasMore = true;
+
+  // Interleave the first 3 items from each category
+  while (hasMore && round < 3) {
+    hasMore = false;
+    for (const cat of catNames) {
+      if (groups[cat].length > round) {
+        balanced.push(groups[cat][round]);
+        hasMore = true;
+      }
+    }
+    round++;
+  }
+
+  // Follow with all remaining items sorted chronologically
+  const remaining = [];
+  for (const cat of catNames) {
+    if (groups[cat].length > 3) {
+      remaining.push(...groups[cat].slice(3));
+    }
+  }
+  remaining.sort((a, b) => new Date(b.published_at) - new Date(a.published_at));
+
+  return [...balanced, ...remaining];
 }
 
 /**
@@ -403,14 +484,18 @@ async function getLiveNews({ category = 'all', search = '', edition = 'en-us', f
       const xml = await fetchWithTimeout(searchUrl);
       articles = parseRssXml(xml, category && category !== 'all' ? category : 'World', editionConfig);
     } else {
-      const urls = buildFeedUrls(editionConfig, catKey);
-      const results = await Promise.allSettled(urls.map(u => fetchWithTimeout(u)));
+      const feedTargets = buildFeedTargets(editionConfig, catKey);
+      const results = await Promise.allSettled(
+        feedTargets.map(async (target) => {
+          const xml = await fetchWithTimeout(target.url);
+          return parseRssXml(xml, target.categoryName, editionConfig);
+        })
+      );
 
       const parsedBatches = [];
       results.forEach((res) => {
-        if (res.status === 'fulfilled' && res.value) {
-          const catName = catKey === 'all' ? 'World' : (category.charAt(0).toUpperCase() + category.slice(1));
-          parsedBatches.push(parseRssXml(res.value, catName, editionConfig));
+        if (res.status === 'fulfilled' && Array.isArray(res.value)) {
+          parsedBatches.push(res.value);
         }
       });
 
@@ -418,7 +503,7 @@ async function getLiveNews({ category = 'all', search = '', edition = 'en-us', f
       const combined = parsedBatches.flat();
 
       for (const item of combined) {
-        const normTitle = item.title.toLowerCase().substring(0, 30);
+        const normTitle = item.title.toLowerCase().substring(0, 32);
         if (!seenTitles.has(normTitle)) {
           seenTitles.add(normTitle);
           articles.push(item);
@@ -429,8 +514,12 @@ async function getLiveNews({ category = 'all', search = '', edition = 'en-us', f
     console.error(`Error fetching live feeds for edition ${editionConfig.name}:`, err.message);
   }
 
-  // Sort by published_at DESC
-  articles.sort((a, b) => new Date(b.published_at) - new Date(a.published_at));
+  // For 'All News', balance diversity across categories so all categories appear on front pages
+  if (catKey === 'all') {
+    articles = balanceArticlesByCategory(articles);
+  } else {
+    articles.sort((a, b) => new Date(b.published_at) - new Date(a.published_at));
+  }
 
   // Pre-resolve real news photos for the top articles of this feed in parallel
   if (articles.length > 0) {
@@ -620,6 +709,55 @@ function clearLiveCache() {
 }
 
 /**
+ * Helper to translate a single text chunk with multi-tier fallback
+ */
+async function translateSingleChunk(trimmed, targetLang = 'en') {
+  if (!trimmed) return trimmed;
+
+  // Tier 1: Google Translate dict-chrome-ex (high reliability, low rate limiting)
+  try {
+    const url = `https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=auto&tl=${targetLang}&q=${encodeURIComponent(trimmed)}`;
+    const res = await fetchWithTimeout(url, 6000);
+    const data = JSON.parse(res);
+    if (Array.isArray(data)) {
+      if (Array.isArray(data[0]) && typeof data[0][0] === 'string') {
+        return data.map(item => Array.isArray(item) ? item[0] : item).join(' ').trim();
+      } else if (typeof data[0] === 'string') {
+        return data.join(' ').trim();
+      }
+    }
+  } catch (err) {
+    // Fall through to Tier 2
+  }
+
+  // Tier 2: Google Translate gtx
+  try {
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetLang}&dt=t&q=${encodeURIComponent(trimmed)}`;
+    const res = await fetchWithTimeout(url, 6000);
+    const data = JSON.parse(res);
+    if (Array.isArray(data) && Array.isArray(data[0])) {
+      return data[0].map(chunk => chunk[0]).join('').trim();
+    }
+  } catch (err) {
+    // Fall through to Tier 3
+  }
+
+  // Tier 3: MyMemory Translation API
+  try {
+    const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(trimmed)}&langpair=auto|${targetLang}`;
+    const res = await fetchWithTimeout(url, 6000);
+    const data = JSON.parse(res);
+    if (data && data.responseData && data.responseData.translatedText) {
+      return data.responseData.translatedText.replace(/<[^>]+>/g, '').trim();
+    }
+  } catch (err) {
+    // All tiers exhausted
+  }
+
+  return trimmed;
+}
+
+/**
  * Translate text into English (or another target language)
  */
 async function translateText(text, targetLang = 'en') {
@@ -634,21 +772,28 @@ async function translateText(text, targetLang = 'en') {
     return translationCache.get(cacheKey);
   }
 
-  try {
-    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetLang}&dt=t&q=${encodeURIComponent(trimmed)}`;
-    const res = await fetchWithTimeout(url, 6000);
-    const data = JSON.parse(res);
-
-    if (Array.isArray(data) && Array.isArray(data[0])) {
-      const translated = data[0].map(chunk => chunk[0]).join('').trim();
-      translationCache.set(cacheKey, translated);
-      return translated;
+  // For multi-paragraph content, translate paragraph-by-paragraph to preserve formatting
+  if (trimmed.includes('\n\n')) {
+    const paras = trimmed.split('\n\n');
+    const translatedParas = [];
+    for (const para of paras) {
+      if (para.trim()) {
+        const trans = await translateSingleChunk(para.trim(), targetLang);
+        translatedParas.push(trans);
+      } else {
+        translatedParas.push('');
+      }
     }
-    return trimmed;
-  } catch (err) {
-    console.warn('Translation service error:', err.message);
-    return trimmed;
+    const combined = translatedParas.join('\n\n');
+    translationCache.set(cacheKey, combined);
+    return combined;
   }
+
+  const result = await translateSingleChunk(trimmed, targetLang);
+  if (result && result !== trimmed) {
+    translationCache.set(cacheKey, result);
+  }
+  return result;
 }
 
 /**

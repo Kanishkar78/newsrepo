@@ -2,6 +2,7 @@ const { Pool } = require('pg');
 const fs = require('fs');
 const path = require('path');
 const { getLiveNews, getCachedLiveArticle, clearLiveCache, translateText, translateBatch, attachRealImages, EDITIONS } = require('../services/liveNewsService');
+const { generateFullArticleContent, detectArticleLanguage } = require('../services/articleContentService');
 require('dotenv').config({ path: path.join(__dirname, '../.env') });
 
 let pool = null;
@@ -155,7 +156,7 @@ const mockNews = [
 async function syncArticlesToDb(articles, edition = 'en-us') {
   if (!pool || !articles || articles.length === 0) return;
   try {
-    for (const art of articles.slice(0, 30)) {
+    for (const art of articles.slice(0, 150)) {
       if (!art.title) continue;
       
       const articleId = art.id ? BigInt(art.id) : null;
@@ -204,39 +205,63 @@ async function syncArticlesToDb(articles, edition = 'en-us') {
 }
 
 /**
+ * Helper to check if a published_at timestamp matches a target YYYY-MM-DD date
+ */
+function matchesDate(publishedAt, targetDate) {
+  if (!targetDate) return true;
+  if (!publishedAt) return false;
+  const d = new Date(publishedAt);
+  if (isNaN(d.getTime())) return false;
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  const localDate = `${yyyy}-${mm}-${dd}`;
+  const utcDate = d.toISOString().split('T')[0];
+  return localDate === targetDate || utcDate === targetDate;
+}
+
+/**
  * Main Get News API function
  * Reads live feeds, persists into PostgreSQL 'newsdb', and queries database.
  */
-async function getNews({ category, search, edition = 'en-us', page = 1, limit = 10, forceRefresh = false } = {}) {
+async function getNews({ category, search, edition = 'en-us', page = 1, limit = 10, forceRefresh = false, date } = {}) {
   const pageNum = parseInt(page, 10) || 1;
   const limitNum = parseInt(limit, 10) || 10;
   const offset = (pageNum - 1) * limitNum;
+  const cleanDate = date && typeof date === 'string' && date.trim() !== '' ? date.trim() : null;
 
   // 1. Fetch live worldwide news for requested edition
   try {
-    const liveArticles = await getLiveNews({ category, search, edition, forceRefresh });
+    let liveArticles = await getLiveNews({ category, search, edition, forceRefresh });
 
     if (liveArticles && liveArticles.length > 0) {
       // Continuously persist live articles to PostgreSQL 'newsdb' in the background
       syncArticlesToDb(liveArticles, edition).catch(() => {});
 
-      const total = liveArticles.length;
-      const paginatedData = liveArticles.slice(offset, offset + limitNum);
+      if (cleanDate) {
+        liveArticles = liveArticles.filter(art => matchesDate(art.published_at, cleanDate));
+      }
 
-      // Attach real news photos for current page
-      await attachRealImages(paginatedData).catch(() => {});
+      // If we have matching live articles for this date/filter, return them
+      if (liveArticles.length > 0) {
+        const total = liveArticles.length;
+        const paginatedData = liveArticles.slice(offset, offset + limitNum);
 
-      return {
-        data: paginatedData,
-        is_live: true,
-        source_db: pool ? 'newsdb (syncing)' : 'in-memory',
-        pagination: {
-          total,
-          page: pageNum,
-          limit: limitNum,
-          totalPages: Math.ceil(total / limitNum) || 1
-        }
-      };
+        // Attach real news photos for current page
+        await attachRealImages(paginatedData).catch(() => {});
+
+        return {
+          data: paginatedData,
+          is_live: true,
+          source_db: pool ? 'newsdb (syncing)' : 'in-memory',
+          pagination: {
+            total,
+            page: pageNum,
+            limit: limitNum,
+            totalPages: Math.ceil(total / limitNum) || 1
+          }
+        };
+      }
     }
   } catch (liveErr) {
     console.warn('Live news feed unavailable, querying PostgreSQL "newsdb":', liveErr.message);
@@ -265,6 +290,11 @@ async function getNews({ category, search, edition = 'en-us', page = 1, limit = 
         paramIdx++;
       }
 
+      if (cleanDate) {
+        conditions.push(`DATE(published_at) = $${paramIdx++}`);
+        params.push(cleanDate);
+      }
+
       const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
       
       const countQuery = `SELECT COUNT(*) FROM news ${whereClause}`;
@@ -280,19 +310,17 @@ async function getNews({ category, search, edition = 'en-us', page = 1, limit = 
       `;
       const dataResult = await pool.query(dataQuery, dataParams);
 
-      if (dataResult.rows.length > 0) {
-        return {
-          data: dataResult.rows,
-          is_live: false,
-          source_db: 'newsdb',
-          pagination: {
-            total: totalCount,
-            page: pageNum,
-            limit: limitNum,
-            totalPages: Math.ceil(totalCount / limitNum) || 1
-          }
-        };
-      }
+      return {
+        data: dataResult.rows,
+        is_live: false,
+        source_db: 'newsdb',
+        pagination: {
+          total: totalCount,
+          page: pageNum,
+          limit: limitNum,
+          totalPages: Math.ceil(totalCount / limitNum) || 1
+        }
+      };
     } catch (err) {
       console.warn('PostgreSQL "newsdb" query error, falling back to mock dataset:', err.message);
     }
@@ -314,6 +342,10 @@ async function getNews({ category, search, edition = 'en-us', page = 1, limit = 
     );
   }
 
+  if (cleanDate) {
+    filtered = filtered.filter(item => matchesDate(item.published_at, cleanDate));
+  }
+
   filtered.sort((a, b) => new Date(b.published_at) - new Date(a.published_at));
 
   const total = filtered.length;
@@ -333,16 +365,80 @@ async function getNews({ category, search, edition = 'en-us', page = 1, limit = 
 }
 
 /**
- * Retrieve article details by ID
+ * Retrieve article details by ID with guaranteed full multi-paragraph content
  */
 async function getNewsById(id) {
   const numericId = parseInt(id, 10);
+
+  async function ensureFullContent(article) {
+    if (!article) return article;
+    const targetLang = detectArticleLanguage(article);
+
+    const contentStr = typeof article.content === 'string' ? article.content : '';
+    let needsGeneration = false;
+    if (!contentStr || contentStr.length < 500 || contentStr.includes('To view the full original reporting and multimedia')) {
+      needsGeneration = true;
+    } else if (targetLang === 'ta' && !/[\u0B80-\u0BFF]/.test(contentStr)) {
+      needsGeneration = true;
+    } else if (targetLang === 'ml' && !/[\u0D00-\u0D7F]/.test(contentStr)) {
+      needsGeneration = true;
+    } else if (targetLang === 'hi' && !/[\u0900-\u097F]/.test(contentStr)) {
+      needsGeneration = true;
+    } else if (targetLang === 'te' && !/[\u0C00-\u0C7F]/.test(contentStr)) {
+      needsGeneration = true;
+    }
+
+    function hasAnyEnglishParagraph(text) {
+      if (!text || typeof text !== 'string') return true;
+      const paras = text.split('\n\n');
+      for (const p of paras) {
+        const engWords = p.match(/[a-zA-Z]{4,}/g) || [];
+        if (engWords.length > 4) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    const isRegional = targetLang !== 'en' && targetLang !== 'en-us' && targetLang !== 'en-gb';
+    if (isRegional && hasAnyEnglishParagraph(contentStr)) {
+      needsGeneration = true;
+    }
+
+    if (needsGeneration) {
+      article.content = await generateFullArticleContent(article, targetLang);
+      if (pool && article.id) {
+        pool.query('UPDATE news SET content = $1 WHERE id = $2', [article.content, article.id.toString()]).catch(() => {});
+      }
+    }
+
+    // Clean description if it contains English boilerplate for regional article
+    if (isRegional && article.description) {
+      const descEngWords = (article.description.match(/[a-zA-Z]{4,}/g) || []).length;
+      if (descEngWords > 3 || article.description.includes('Live report:')) {
+        const sourceName = article.source || 'செய்தி நிறுவனம்';
+        if (targetLang === 'ta') {
+          article.description = `${sourceName} வழங்கும் நேரடிச் செய்தி: "${article.title}". கள நிலவரம் மற்றும் முக்கிய நிகழ்வுகளின் நேரடித் தொகுப்பு.`;
+        } else if (targetLang === 'ml') {
+          article.description = `${sourceName} റിപ്പോർട്ട് ചെയ്യുന്ന വാർത്തകൾ: "${article.title}". തത്സമയ വിവരங்களும் புதிய സംഭവവികാസങ്ങളും.`;
+        } else if (targetLang === 'hi') {
+          article.description = `${sourceName} द्वारा विशेष रिपोर्ट: "${article.title}". ताजा घटनाक्रम और मुख्य समाचारों का लाइव विवरण.`;
+        } else if (targetLang === 'te') {
+          article.description = `${sourceName} తాజా వార్త: "${article.title}". క్షేత్రస్థాయి పరిణామాలు మరియు ముఖ్యాంశాలు.`;
+        }
+        if (pool && article.id) {
+          pool.query('UPDATE news SET description = $1 WHERE id = $2', [article.description, article.id.toString()]).catch(() => {});
+        }
+      }
+    }
+    return article;
+  }
 
   // 1. Check live memory cache first
   let liveArticle = getCachedLiveArticle(numericId);
   if (liveArticle) {
     await attachRealImages([liveArticle]).catch(() => {});
-    return liveArticle;
+    return await ensureFullContent(liveArticle);
   }
 
   // 2. Query PostgreSQL 'newsdb'
@@ -350,7 +446,7 @@ async function getNewsById(id) {
     try {
       const result = await pool.query('SELECT * FROM news WHERE id = $1', [numericId.toString()]);
       if (result.rows.length > 0) {
-        return result.rows[0];
+        return await ensureFullContent(result.rows[0]);
       }
     } catch (err) {
       console.warn('PostgreSQL getNewsById error:', err.message);
@@ -363,12 +459,13 @@ async function getNewsById(id) {
     liveArticle = getCachedLiveArticle(numericId);
     if (liveArticle) {
       await attachRealImages([liveArticle]).catch(() => {});
-      return liveArticle;
+      return await ensureFullContent(liveArticle);
     }
   } catch (_) {}
 
   // 4. Fallback to mock dataset
-  return mockNews.find(item => item.id === numericId) || null;
+  const mockArt = mockNews.find(item => item.id === numericId) || null;
+  return await ensureFullContent(mockArt);
 }
 
 /**

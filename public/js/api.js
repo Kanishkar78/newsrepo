@@ -5,11 +5,12 @@
 const NewsAPI = (function() {
   const BASE_URL = '/api';
 
-  async function getNews({ category = 'all', search = '', edition = 'en-us', page = 1, limit = 9, refresh = false } = {}) {
+  async function getNews({ category = 'all', search = '', edition = 'en-us', page = 1, limit = 9, refresh = false, date = '' } = {}) {
     const params = new URLSearchParams();
     if (category && category !== 'all') params.append('category', category);
     if (search && search.trim()) params.append('search', search.trim());
     if (edition) params.append('edition', edition);
+    if (date && date.trim()) params.append('date', date.trim());
     params.append('page', page);
     params.append('limit', limit);
     if (refresh) params.append('refresh', 'true');

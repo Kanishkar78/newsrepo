@@ -81,6 +81,17 @@ document.addEventListener('DOMContentLoaded', () => {
       day: 'numeric'
     });
 
+    const hasRegionalChars = /[\u0B80-\u0BFF\u0D00-\u0D7F\u0900-\u097F\u0C00-\u0C7F]/.test(title);
+    const descHasEnglish = description && (description.match(/[a-zA-Z]{4,}/g) || []).length > 3;
+    const isPlaceholderDesc = description && (
+      description.includes('Live report:') ||
+      description.includes('Real-time updates') ||
+      description.includes('This story is curated directly') ||
+      content.startsWith(description.trim()) ||
+      content.includes(description.trim())
+    );
+    const shouldShowLeadDesc = description && !isPlaceholderDesc && !(hasRegionalChars && descHasEnglish) && (!content || content.split('\n\n').length < 2);
+
     contentWrapper.innerHTML = `
       <article class="article-detail">
         <header class="article-header">
@@ -125,7 +136,7 @@ document.addEventListener('DOMContentLoaded', () => {
         </div>
 
         <div class="article-body-content" id="article-body-el">
-          <p><strong>${escapeHtml(description)}</strong></p>
+          ${shouldShowLeadDesc ? `<p class="article-lead-paragraph">${escapeHtml(description)}</p>` : ''}
           ${formatParagraphs(content)}
         </div>
 

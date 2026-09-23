@@ -184,12 +184,13 @@ app.post('/api/translate', async (req, res) => {
 // API Routes
 app.get('/api/news', async (req, res) => {
   try {
-    const { category, search, page = 1, limit = 10, refresh, edition = 'en-us' } = req.query;
+    const { category, search, page = 1, limit = 10, refresh, edition = 'en-us', date } = req.query;
     const forceRefresh = refresh === 'true' || refresh === '1';
-    const result = await getNews({ category, search, edition, page, limit, forceRefresh });
+    const result = await getNews({ category, search, edition, page, limit, forceRefresh, date });
     res.json({
       success: true,
       edition,
+      date: date || null,
       ...result
     });
   } catch (err) {

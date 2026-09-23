@@ -14,6 +14,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const categoryNav = document.getElementById('category-nav');
   const sectionTitle = document.getElementById('section-title');
   const resultCount = document.getElementById('result-count');
+  const dateFilterInput = document.getElementById('date-filter-input');
+  const clearDateBtn = document.getElementById('clear-date-btn');
 
   // Application State
   const savedEdition = localStorage.getItem('pulsenews_edition') || 'en-us';
@@ -25,6 +27,7 @@ document.addEventListener('DOMContentLoaded', () => {
     category: 'all',
     search: '',
     edition: savedEdition,
+    date: '',
     page: 1,
     limit: 6
   };
@@ -95,6 +98,33 @@ document.addEventListener('DOMContentLoaded', () => {
       loadNews();
     });
 
+    // Date Filter Input Handler
+    if (dateFilterInput) {
+      // Restrict max selectable date to today
+      const today = new Date().toISOString().split('T')[0];
+      dateFilterInput.max = today;
+
+      dateFilterInput.addEventListener('change', (e) => {
+        state.date = e.target.value;
+        if (clearDateBtn) {
+          clearDateBtn.style.display = state.date ? 'inline-flex' : 'none';
+        }
+        state.page = 1;
+        loadNews();
+      });
+    }
+
+    // Clear Date Filter Button
+    if (clearDateBtn) {
+      clearDateBtn.addEventListener('click', () => {
+        if (dateFilterInput) dateFilterInput.value = '';
+        clearDateBtn.style.display = 'none';
+        state.date = '';
+        state.page = 1;
+        loadNews();
+      });
+    }
+
     // 1-Click Card Translation to English Handler
     newsGrid.addEventListener('click', async (e) => {
       const btn = e.target.closest('.translate-card-btn');
@@ -160,9 +190,20 @@ document.addEventListener('DOMContentLoaded', () => {
     const selectedOption = editionSelect ? editionSelect.options[editionSelect.selectedIndex] : null;
     const editionText = selectedOption ? selectedOption.text.split('(')[0].trim() : 'Live';
     
+    // Format date for title display
+    const formattedDate = state.date 
+      ? new Date(state.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+      : '';
+
     // Title update
-    if (state.search.trim()) {
+    if (state.search.trim() && state.date) {
+      sectionTitle.innerText = `Search: "${state.search.trim()}" (${formattedDate})`;
+    } else if (state.search.trim()) {
       sectionTitle.innerText = `Search: "${state.search.trim()}"`;
+    } else if (state.date && state.category.toLowerCase() !== 'all') {
+      sectionTitle.innerText = `${state.category} — ${formattedDate}`;
+    } else if (state.date) {
+      sectionTitle.innerText = `Headlines — ${formattedDate}`;
     } else if (state.category.toLowerCase() !== 'all') {
       sectionTitle.innerText = `${state.category} — ${editionText}`;
     } else {
@@ -212,10 +253,14 @@ document.addEventListener('DOMContentLoaded', () => {
   function resetAllFilters() {
     state.category = 'all';
     state.search = '';
+    state.date = '';
     state.page = 1;
 
     searchInput.value = '';
     clearSearchBtn.style.display = 'none';
+
+    if (dateFilterInput) dateFilterInput.value = '';
+    if (clearDateBtn) clearDateBtn.style.display = 'none';
 
     document.querySelectorAll('.category-btn').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.category === 'all');

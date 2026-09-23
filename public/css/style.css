@@ -571,6 +571,100 @@ body {
   }
 }
 
+/* Date Filter Control */
+.date-filter-wrapper {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border-color);
+  padding: 0.3rem 0.65rem 0.3rem 0.75rem;
+  border-radius: 100px;
+  transition: var(--transition-fast);
+  position: relative;
+}
+
+[data-theme="light"] .date-filter-wrapper {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.date-filter-wrapper:hover,
+.date-filter-wrapper:focus-within {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+  background: rgba(255, 255, 255, 0.09);
+}
+
+[data-theme="light"] .date-filter-wrapper:hover,
+[data-theme="light"] .date-filter-wrapper:focus-within {
+  background: #ffffff;
+  border-color: var(--accent-primary);
+}
+
+.date-filter-icon {
+  color: var(--accent-cyan);
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+.date-filter-input {
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 0.15rem 0.2rem;
+  cursor: pointer;
+  outline: none;
+  color-scheme: dark;
+}
+
+[data-theme="light"] .date-filter-input {
+  color-scheme: light;
+}
+
+.date-filter-input::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.7;
+  filter: invert(0.8);
+  transition: var(--transition-fast);
+}
+
+[data-theme="light"] .date-filter-input::-webkit-calendar-picker-indicator {
+  filter: none;
+  opacity: 0.6;
+}
+
+.date-filter-input::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}
+
+.clear-date-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #f87171;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  cursor: pointer;
+  padding: 0;
+  transition: var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.clear-date-btn:hover {
+  background: #ef4444;
+  color: #ffffff;
+  transform: scale(1.1);
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.5);
+}
+
 .result-count {
   font-size: 0.85rem;
   font-weight: 500;
@@ -1061,6 +1155,16 @@ body {
 
 .article-body-content p {
   white-space: pre-line;
+}
+
+.article-lead-paragraph {
+  font-size: 1.25rem !important;
+  font-weight: 600;
+  line-height: 1.75;
+  color: var(--text-primary);
+  border-left: 3px solid var(--accent-primary);
+  padding-left: 1.25rem;
+  margin-bottom: 0.5rem;
 }
 
 /* Article Source Box */

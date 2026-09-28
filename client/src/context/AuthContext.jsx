@@ -131,7 +131,7 @@ export function AuthProvider({ children }) {
     sessionStorage.setItem('pulsenews_session_killed', '1');
     if (currentToken) {
       try {
-        fetch('/api/auth/logout', {
+        fetch(`${API_BASE}/api/auth/logout`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

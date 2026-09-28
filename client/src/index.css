@@ -108,6 +108,16 @@ body {
   transition: background-color 0.25s ease, color 0.25s ease;
 }
 
+#root,
+.app-container,
+.article-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  flex: 1;
+}
+
 .header,
 .category-nav-wrapper,
 .news-card,

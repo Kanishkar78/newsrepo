@@ -100,8 +100,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Date Filter Input Handler
     if (dateFilterInput) {
-      // Restrict max selectable date to today
+      // Restrict selectable dates to year 2000 through today
       const today = new Date().toISOString().split('T')[0];
+      dateFilterInput.min = '2000-01-01';
       dateFilterInput.max = today;
 
       dateFilterInput.addEventListener('change', (e) => {

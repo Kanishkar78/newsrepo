@@ -95,7 +95,7 @@ document.addEventListener('DOMContentLoaded', () => {
     contentWrapper.innerHTML = `
       <article class="article-detail">
         <header class="article-header">
-          <span class="category-badge ${catClass}">${escapeHtml(currentArticle.category)}</span>
+          <span class="category-badge ${catClass}">${escapeHtml((currentArticle.category && currentArticle.category.trim()) ? currentArticle.category.trim() : 'World')}</span>
           <h1 class="article-title-main" id="article-title-el">${escapeHtml(title)}</h1>
           
           <div class="article-meta-row">

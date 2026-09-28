@@ -40,7 +40,13 @@ const PulseAuth = (function() {
       body: JSON.stringify({ name, email, password })
     });
 
-    const data = await response.json();
+    let data;
+    try {
+      data = await response.json();
+    } catch (_) {
+      throw new Error(`Server returned HTTP ${response.status}. The backend API server may be offline. Please start it with 'npm start'.`);
+    }
+
     if (!response.ok || !data.success) {
       throw new Error(data.error || 'Registration failed. Please check your details.');
     }
@@ -56,7 +62,13 @@ const PulseAuth = (function() {
       body: JSON.stringify({ email, password })
     });
 
-    const data = await response.json();
+    let data;
+    try {
+      data = await response.json();
+    } catch (_) {
+      throw new Error(`Server returned HTTP ${response.status}. The backend API server may be offline. Please start it with 'npm start'.`);
+    }
+
     if (!response.ok || !data.success) {
       throw new Error(data.error || 'Invalid email or password.');
     }
@@ -80,7 +92,7 @@ const PulseAuth = (function() {
     } catch (_) {}
 
     clearSession();
-    window.location.href = '/login';
+    window.location.replace('/login');
   }
 
   async function verifyCurrentSession() {

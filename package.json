@@ -7,8 +7,15 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
+    "client:dev": "npm --prefix client run dev",
+    "client:build": "npm --prefix client run build",
+    "build": "npm --prefix client install && npm --prefix client run build",
     "db:setup": "node db/setup.js",
-    "db:seed": "node db/seed.js"
+    "db:seed": "node db/seed.js",
+    "docker:up": "docker compose up -d",
+    "docker:build": "docker compose up -d --build",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f"
   },
   "dependencies": {
     "cors": "^2.8.5",

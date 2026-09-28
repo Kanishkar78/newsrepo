@@ -13,30 +13,49 @@ let pool = null;
 function getPool() {
   if (pool) return pool;
 
-  const dbUrl = process.env.DATABASE_URL || '';
-  const pwd = process.env.PGPASSWORD || '';
+  let dbUrl = process.env.DATABASE_URL || '';
+  let user = process.env.PGUSER || 'postgres';
+  let password = process.env.PGPASSWORD || '';
+  let host = process.env.PGHOST || 'localhost';
+  let port = parseInt(process.env.PGPORT, 10) || 5432;
+  let database = process.env.PGDATABASE || 'newsdb';
 
-  if (pwd && pwd !== 'your_password_here') {
-    pool = new Pool({
-      user: process.env.PGUSER || 'postgres',
-      password: pwd,
-      host: process.env.PGHOST || 'localhost',
-      port: parseInt(process.env.PGPORT, 10) || 5432,
-      database: process.env.PGDATABASE || 'newsdb',
-      ssl: false
-    });
-    return pool;
+  if (dbUrl && dbUrl.includes('://')) {
+    try {
+      const parsed = new URL(dbUrl);
+      user = decodeURIComponent(parsed.username) || user;
+      password = decodeURIComponent(parsed.password) || password;
+      host = parsed.hostname || host;
+      port = parseInt(parsed.port, 10) || port;
+      if (parsed.pathname && parsed.pathname.length > 1) {
+        database = parsed.pathname.substring(1);
+      }
+    } catch (_) {}
   }
 
-  if (dbUrl && dbUrl.startsWith('postgres') && !dbUrl.includes('your_password_here')) {
-    pool = new Pool({
-      connectionString: dbUrl,
-      ssl: process.env.NODE_ENV === 'production' || dbUrl.includes('neon.tech') ? { rejectUnauthorized: false } : false
-    });
-    return pool;
+  // Explicit env vars take priority
+  if (process.env.PGPASSWORD) password = process.env.PGPASSWORD;
+  if (process.env.PGUSER) user = process.env.PGUSER;
+  if (process.env.PGHOST) host = process.env.PGHOST;
+  if (process.env.PGPORT) port = parseInt(process.env.PGPORT, 10);
+  if (process.env.PGDATABASE) database = process.env.PGDATABASE;
+
+  if (password === 'your_password_here') {
+    return null;
   }
 
-  return null;
+  pool = new Pool({
+    user,
+    password,
+    host,
+    port,
+    database,
+    ssl: (process.env.NODE_ENV === 'production' && !host.includes('localhost') && !host.includes('postgres')) 
+      ? { rejectUnauthorized: false } 
+      : false
+  });
+
+  return pool;
 }
 
 // In-memory fallback if database is temporarily disconnected

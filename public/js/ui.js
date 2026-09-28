@@ -19,13 +19,16 @@ const NewsUI = (function() {
   function getCategoryClass(category) {
     const cat = (category || '').toLowerCase();
     switch (cat) {
+      case 'world': return 'category-world';
       case 'sports': return 'category-sports';
       case 'politics': return 'category-politics';
       case 'technology': return 'category-technology';
       case 'business': return 'category-business';
       case 'entertainment': return 'category-entertainment';
       case 'education': return 'category-education';
-      default: return 'category-technology';
+      case 'science': return 'category-science';
+      case 'health': return 'category-health';
+      default: return 'category-world';
     }
   }
 
@@ -72,7 +75,7 @@ const NewsUI = (function() {
 
       card.innerHTML = `
         <div class="card-image-wrapper">
-          <span class="category-badge ${catClass}">${escapeHtml(article.category)}</span>
+          <span class="category-badge ${catClass}">${escapeHtml((article.category && article.category.trim()) ? article.category.trim() : 'World')}</span>
           <img 
             src="${escapeHtml(imageUrl)}" 
             data-fallback="${escapeHtml(fallbackUrl)}"
@@ -125,29 +128,73 @@ const NewsUI = (function() {
 
     if (totalPages <= 1) return;
 
-    // Previous Button
-    const prevBtn = document.createElement('button');
-    prevBtn.className = 'page-btn';
-    prevBtn.innerHTML = '&#8592; Prev';
-    prevBtn.disabled = page <= 1;
-    prevBtn.addEventListener('click', () => onPageChange(page - 1));
-    container.appendChild(prevBtn);
-
-    // Page Numbers
-    for (let i = 1; i <= totalPages; i++) {
-      const pageBtn = document.createElement('button');
-      pageBtn.className = `page-btn ${i === page ? 'active' : ''}`;
-      pageBtn.innerText = i;
-      pageBtn.addEventListener('click', () => onPageChange(i));
-      container.appendChild(pageBtn);
+    // Helper to create page button
+    function createPageButton(pageNum, text, isActive, isDisabled) {
+      const btn = document.createElement('button');
+      btn.className = `page-btn ${isActive ? 'active' : ''}`;
+      btn.innerHTML = text !== undefined ? text : pageNum;
+      btn.disabled = Boolean(isDisabled);
+      if (isActive) {
+        btn.setAttribute('aria-current', 'page');
+      }
+      if (!isDisabled && !isActive) {
+        btn.addEventListener('click', () => {
+          onPageChange(pageNum);
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+      }
+      return btn;
     }
 
+    // Helper to create ellipsis dots
+    function createDots() {
+      const span = document.createElement('span');
+      span.className = 'page-dots';
+      span.innerHTML = '&hellip;';
+      span.setAttribute('aria-hidden', 'true');
+      return span;
+    }
+
+    // Previous Button
+    const prevBtn = createPageButton(page - 1, '&#8592; Prev', false, page <= 1);
+    prevBtn.setAttribute('aria-label', 'Previous Page');
+    container.appendChild(prevBtn);
+
+    // Calculate smart sliding window for page numbers
+    let pagesToShow = [];
+
+    if (totalPages <= 7) {
+      // If 7 or fewer pages, show all
+      for (let i = 1; i <= totalPages; i++) {
+        pagesToShow.push(i);
+      }
+    } else {
+      // If near the start
+      if (page <= 4) {
+        pagesToShow = [1, 2, 3, 4, 5, 'dots', totalPages];
+      }
+      // If near the end
+      else if (page >= totalPages - 3) {
+        pagesToShow = [1, 'dots', totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages];
+      }
+      // Middle of the range
+      else {
+        pagesToShow = [1, 'dots-left', page - 1, page, page + 1, 'dots-right', totalPages];
+      }
+    }
+
+    // Render buttons & ellipsis
+    pagesToShow.forEach(item => {
+      if (typeof item === 'string' && item.startsWith('dots')) {
+        container.appendChild(createDots());
+      } else {
+        container.appendChild(createPageButton(item, item, item === page, false));
+      }
+    });
+
     // Next Button
-    const nextBtn = document.createElement('button');
-    nextBtn.className = 'page-btn';
-    nextBtn.innerHTML = 'Next &#8594;';
-    nextBtn.disabled = page >= totalPages;
-    nextBtn.addEventListener('click', () => onPageChange(page + 1));
+    const nextBtn = createPageButton(page + 1, 'Next &#8594;', false, page >= totalPages);
+    nextBtn.setAttribute('aria-label', 'Next Page');
     container.appendChild(nextBtn);
   }
 

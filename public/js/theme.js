@@ -55,6 +55,61 @@
     }
   });
 
+  // --------------------------------------------------------------------------
+  // Disable Mousepad / Trackpad Horizontal Swipe Navigation (Back/Forward)
+  // --------------------------------------------------------------------------
+  window.addEventListener('wheel', function(e) {
+    // If predominantly horizontal trackpad swipe
+    if (Math.abs(e.deltaX) > Math.abs(e.deltaY) && Math.abs(e.deltaX) > 2) {
+      // Allow horizontal scroll ONLY inside elements that actually scroll horizontally
+      var el = e.target;
+      var canScroll = false;
+      while (el && el !== document.body && el !== document.documentElement) {
+        var style = window.getComputedStyle(el);
+        var overflowX = style.overflowX;
+        if ((overflowX === 'auto' || overflowX === 'scroll') && el.scrollWidth > el.clientWidth) {
+          canScroll = true;
+          break;
+        }
+        el = el.parentElement;
+      }
+      if (!canScroll) {
+        e.preventDefault();
+      }
+    }
+  }, { passive: false });
+
+  // Disable horizontal edge swipe gestures on touchpads/touchscreens
+  var touchStartX = 0;
+  var touchStartY = 0;
+  window.addEventListener('touchstart', function(e) {
+    if (e.touches && e.touches.length > 0) {
+      touchStartX = e.touches[0].clientX;
+      touchStartY = e.touches[0].clientY;
+    }
+  }, { passive: true });
+
+  window.addEventListener('touchmove', function(e) {
+    if (!e.touches || e.touches.length === 0) return;
+    var deltaX = e.touches[0].clientX - touchStartX;
+    var deltaY = e.touches[0].clientY - touchStartY;
+    if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 12) {
+      var el = e.target;
+      var canScroll = false;
+      while (el && el !== document.body && el !== document.documentElement) {
+        var style = window.getComputedStyle(el);
+        if ((style.overflowX === 'auto' || style.overflowX === 'scroll') && el.scrollWidth > el.clientWidth) {
+          canScroll = true;
+          break;
+        }
+        el = el.parentElement;
+      }
+      if (!canScroll) {
+        e.preventDefault();
+      }
+    }
+  }, { passive: false });
+
   window.PulseTheme = {
     getTheme: () => document.documentElement.getAttribute('data-theme') || 'dark',
     setTheme: (t) => {

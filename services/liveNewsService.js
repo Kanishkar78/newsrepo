@@ -547,30 +547,255 @@ async function getLiveNews({ category = 'all', search = '', edition = 'en-us', f
 // In-Memory Story Image Cache (key -> { imageUrl, imageFallback })
 const articleImageCache = new Map();
 
+// Stopwords to strip when extracting core historical and entity search topics
+const WIKI_STOPWORDS = new Set([
+  'a', 'an', 'the', 'in', 'on', 'at', 'for', 'to', 'of', 'with', 'by', 'from',
+  'and', 'or', 'as', 'into', 'first', 'conclude', 'celebrate', 'deliver', 'enter',
+  'across', 'under', 'amid', 'during', 'major', 'historic', 'historically',
+  'announce', 'announces', 'begins', 'begin', 'launches', 'launch', 'unveil', 'unveils',
+  'global', 'international', 'national', 'world', 'report', 'reports', 'record', 'records'
+]);
+
 /**
- * Clean headline for search engines by removing publisher names, punctuation,
+ * Clean headline for search engines by removing localized prefixes, publisher names,
  * and trimming to the core subject matter.
  */
 function cleanHeadlineForSearch(title) {
   if (!title) return '';
-  // 1. Remove trailing source suffix e.g. " - BBC News"
-  let clean = title.replace(/\s+[-|–—]\s+[^-|–—]+$/, '').trim();
-  // 2. Clean punctuation while preserving all unicode letters & numbers
-  clean = clean.replace(/["'“”«»()[\]{}—:;,.]/g, ' ').replace(/\s+/g, ' ').trim();
-  // 3. Take first 8 words for focused keyword matching
+  let clean = title.trim();
+
+  // 1. Remove localized category and historical prefixes across all supported languages
+  clean = clean.replace(/^[^\s:]*(?:\s+[^\s:]*)?\s*(?:வரலாற்றுச் செய்தி|வரலாற்றுப் பதிவு|வரலாற்று ஆவணம்|வரலாற்று அறிக்கை|வரலாறு)\s*:\s*/i, '');
+  clean = clean.replace(/^[^\s:]*(?:\s+[^\s:]*)?\s*(?:ऐतिहासिक समाचार|पुरालेख रिपोर्ट|ऐतिहासिक अभिलेख)\s*:\s*/i, '');
+  clean = clean.replace(/^[^\s:]*(?:\s+[^\s:]*)?\s*(?:ചരിത്രരേഖ|ചരിത്രവാർത്ത)\s*:\s*/i, '');
+  clean = clean.replace(/^[^\s:]*(?:\s+[^\s:]*)?\s*(?:Archivbericht|Dépêche d'époque|Archivo Histórico)\s*:\s*/i, '');
+  clean = clean.replace(/^(?:World|Technology|Business|Sports|Politics|Entertainment|Education)\s*(?:Historical News|Archive Report|History|News)?\s*:\s*/i, '');
+
+  // 2. Remove trailing year in parentheses e.g. " (2026)" or " (2000)"
+  clean = clean.replace(/\s*\(\d{4}\)\s*$/, '').trim();
+
+  // 3. Strip trailing publisher suffix only if after the last dash and reasonably short (< 30 chars)
+  const lastDash = clean.lastIndexOf(' - ');
+  if (lastDash !== -1 && clean.length - lastDash < 30) {
+    clean = clean.substring(0, lastDash).trim();
+  }
+
+  // 4. Remove quotation marks, colons, brackets, and extra punctuation while preserving all unicode letters
+  clean = clean.replace(/["'“”«»()[\]{}—:;,]/g, ' ').replace(/\s+/g, ' ').trim();
   const words = clean.split(' ').filter(w => w.length > 0);
-  if (words.length > 8) {
-    clean = words.slice(0, 8).join(' ');
+  if (words.length > 9) {
+    clean = words.slice(0, 9).join(' ');
   }
   return clean;
 }
 
 /**
- * Fetch and extract the exact real news photo for an individual article story.
+ * Tier 1: Bing News Search
+ * Dedicated editorial news engine indexing verified news publishers worldwide.
+ * Returns authentic publisher photos hosted on Microsoft CDN (th.bing.com).
+ * Validates that an actual news card exists and discards static page banners.
+ */
+async function fetchFromBingNews(query) {
+  try {
+    const url = `https://www.bing.com/news/search?q=${encodeURIComponent(query)}&form=NWRFSH`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2500);
+
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9,ta;q=0.8,hi;q=0.8,ml;q=0.7,te;q=0.7,de;q=0.7,fr;q=0.7'
+      }
+    });
+    clearTimeout(timeout);
+
+    const html = await res.text();
+
+    // Check for "No results" page to avoid grabbing static site teaser banners
+    if (html.includes('There are no results') || html.includes('No results') || html.includes('no results for') || html.includes('முடிவுகள் இல்லை') || html.includes('कोई परिणाम नहीं')) {
+      return null;
+    }
+
+    // Match image specifically inside an actual news card or news item, NOT the page banner
+    const match = html.match(/class="[^"]*(?:news-card|newsitem|ans|card|na_c)[^"]*"[\s\S]*?data-src-hq="((?:https?:)?\/\/[^"]+th\?id=[^"]+)"/i) ||
+                  html.match(/class="[^"]*(?:news-card|newsitem|ans|card|na_c)[^"]*"[\s\S]*?src="((?:https?:)?\/\/[^"]+th\?id=[^"]+pid=News[^"]*)"/i);
+
+    if (match) {
+      let rawImg = match[1].replace(/&amp;/g, '&');
+      if (rawImg.startsWith('//')) {
+        rawImg = 'https:' + rawImg;
+      } else if (rawImg.startsWith('/')) {
+        rawImg = 'https://www.bing.com' + rawImg;
+      }
+
+      // Upgrade dimensions for high resolution
+      const hiResImg = rawImg.replace(/&w=\d+/, '&w=1200').replace(/&h=\d+/, '&h=675');
+      return {
+        imageUrl: hiResImg,
+        imageFallback: rawImg
+      };
+    }
+  } catch (_) {}
+  return null;
+}
+
+/**
+ * Tier 2: Wikipedia / Wikimedia PageImages API
+ * Real editorial photos for recognized global events, people, places, institutions, and science.
+ * Iterates through candidate search entities for maximum hit rate.
+ */
+async function fetchFromWikipedia(query) {
+  // Extract candidate search queries: full query, first 3-4 words, and non-stopword core nouns
+  const words = query.split(' ').filter(w => w.length > 0);
+  const candidates = [query];
+
+  if (words.length > 3) {
+    candidates.push(words.slice(0, 4).join(' '));
+    candidates.push(words.slice(0, 3).join(' '));
+  }
+
+  const coreNouns = words.filter(w => !WIKI_STOPWORDS.has(w.toLowerCase()));
+  if (coreNouns.length >= 2) {
+    candidates.push(coreNouns.slice(0, 3).join(' '));
+    candidates.push(coreNouns.slice(0, 2).join(' '));
+  }
+
+  for (const q of [...new Set(candidates)]) {
+    try {
+      const url = `https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(q)}&gsrlimit=3&prop=pageimages&pithumbsize=1200&format=json&origin=*`;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 2000);
+
+      const res = await fetch(url, {
+        signal: controller.signal,
+        headers: { 'User-Agent': 'NewsReaderApp/1.0' }
+      });
+      clearTimeout(timeout);
+
+      const data = await res.json();
+      if (data.query && data.query.pages) {
+        for (const page of Object.values(data.query.pages)) {
+          if (page && page.thumbnail && page.thumbnail.source) {
+            const src = page.thumbnail.source;
+            // Filter out raw SVG icons, disambiguation pages, and Wikipedia cleanup placeholders
+            if (!src.endsWith('.svg') && !src.includes('Disambig') && !src.includes('Question_book')) {
+              return {
+                imageUrl: src,
+                imageFallback: src
+              };
+            }
+          }
+        }
+      }
+    } catch (_) {}
+  }
+  return null;
+}
+
+/**
+ * Tier 3: Filtered Web Images Search
+ * Fallback with strict negative filters excluding e-commerce, clipart, and stock illustrations.
+ */
+async function fetchFromFilteredWebImages(query) {
+  const BAD_DOMAINS = [
+    'walmart', 'amazon', 'ebay', 'aliexpress', 'temu', 'shein', 'target',
+    'homedepot', 'wayfair', 'etsy', 'freepik', 'vector', 'clipart',
+    'shutterstock', 'istockphoto', 'depositphotos', '123rf', 'dreamstime'
+  ];
+
+  try {
+    const url = `https://www.bing.com/images/search?q=${encodeURIComponent(query)}&qft=+filterui:imagesize-large&first=1`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2500);
+
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9,ta;q=0.8,hi;q=0.8'
+      }
+    });
+    clearTimeout(timeout);
+
+    const html = await res.text();
+    const regex = /class="iusc"[^>]*m="([^"]+)"/g;
+    let match;
+
+    while ((match = regex.exec(html)) !== null) {
+      try {
+        const raw = match[1].replace(/&quot;/g, '"');
+        const item = JSON.parse(raw);
+        if (!item.murl || !item.murl.startsWith('http')) continue;
+
+        const murlLower = item.murl.toLowerCase();
+        if (BAD_DOMAINS.some(d => murlLower.includes(d))) continue;
+
+        const fallback = item.turl ? item.turl.replace(/&amp;/g, '&') : item.murl;
+        return {
+          imageUrl: item.murl,
+          imageFallback: fallback
+        };
+      } catch (_) {}
+    }
+  } catch (_) {}
+  return null;
+}
+
+// Curated authentic historical and documentary fallback photos from Wikimedia Commons
+const HISTORICAL_CATEGORY_IMAGES = {
+  World: [
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/e/ec/Vladimir_Putin_at_the_Millennium_Summit_6-8_September_2000-6.jpg/1280px-Vladimir_Putin_at_the_Millennium_Summit_6-8_September_2000-6.jpg',
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/6/6e/Kyoto_Protocol_parties.svg/1280px-Kyoto_Protocol_parties.svg.png',
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f5/Euro_Series_Banknotes_%282019%29_-_centered.png/1280px-Euro_Series_Banknotes_%282019%29_-_centered.png',
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/8/87/Palace_of_Peace_and_Reconciliation%2C_Astana.jpg/1280px-Palace_of_Peace_and_Reconciliation%2C_Astana.jpg'
+  ],
+  Technology: [
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/5/59/The_station_pictured_from_the_SpaceX_Crew_Dragon_5.jpg/1280px-The_station_pictured_from_the_SpaceX_Crew_Dragon_5.jpg',
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/7/74/LHC.svg/1280px-LHC.svg.png',
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/8/84/Nasdaq_Composite_dot-com_bubble.svg/1280px-Nasdaq_Composite_dot-com_bubble.svg.png',
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d8/Thin_Film_Flexible_Solar_PV_Installation_2.JPG/1280px-Thin_Film_Flexible_Solar_PV_Installation_2.JPG'
+  ],
+  Business: [
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/5/53/Lehman_Brothers_Times_Square_by_David_Shankbone.jpg/1280px-Lehman_Brothers_Times_Square_by_David_Shankbone.jpg',
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/0/09/A6-EDY_A380_Emirates_31_jan_2013_jfk_%288442269364%29_%28cropped%29.jpg/1280px-A6-EDY_A380_Emirates_31_jan_2013_jfk_%288442269364%29_%28cropped%29.jpg',
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e9/London_Stock_Exchange_outside.jpg/1280px-London_Stock_Exchange_outside.jpg',
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/f/ff/Headquarter_of_Toyota_Motor_Corporation_3.JPG/1280px-Headquarter_of_Toyota_Motor_Corporation_3.JPG'
+  ],
+  Sports: [
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/9/9c/Phelpsbeijing-2.jpg/1280px-Phelpsbeijing-2.jpg',
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/1/11/NISSANSTADIUM20080608.JPG/1280px-NISSANSTADIUM20080608.JPG',
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/3/3a/Disney%27s_Wide_World_of_Sports_%287426504780%29.jpg/1280px-Disney%27s_Wide_World_of_Sports_%287426504780%29.jpg',
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d2/London_Wembley.jpg/1280px-London_Wembley.jpg'
+  ],
+  Politics: [
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/6/60/International_Criminal_Court_%E2%80%93_State_Parties.svg/1280px-International_Criminal_Court_%E2%80%93_State_Parties.svg.png',
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/5/5c/Great_Seal_of_the_United_States_%28obverse%29.svg/1280px-Great_Seal_of_the_United_States_%28obverse%29.svg.png',
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b8/United_States_Capitol_west_front_edit2.jpg/1280px-United_States_Capitol_west_front_edit2.jpg',
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/4/4b/G20_leaders_at_the_2008_G-20_Washington_summit.jpg/1280px-G20_leaders_at_the_2008_G-20_Washington_summit.jpg'
+  ],
+  Entertainment: [
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/1/17/Lord_of_the_rings_fellowship_of_the_ring.jpg/1280px-Lord_of_the_rings_fellowship_of_the_ring.jpg',
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b5/Cannes_Film_Festival_logo.svg/1280px-Cannes_Film_Festival_logo.svg.png',
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/8/87/Palais_des_Festivals_Cannes.jpg/1280px-Palais_des_Festivals_Cannes.jpg',
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/4/4a/Rock_and_Roll_Hall_of_Fame_2014.jpg/1280px-Rock_and_Roll_Hall_of_Fame_2014.jpg'
+  ],
+  Education: [
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/6/6a/Phoenix_landing.jpg/1280px-Phoenix_landing.jpg',
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/0/02/JWST_spacecraft_model_2.png/1280px-JWST_spacecraft_model_2.png',
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f3/Logo_HGP.jpg/1280px-Logo_HGP.jpg',
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/4/4a/Hubble_2009_close-up_2.jpg/1280px-Hubble_2009_close-up_2.jpg'
+  ]
+};
+
+/**
+ * Fetch and extract the exact real editorial news photo for an individual article story.
  * Multi-tiered:
- * 1. Bing Image Engine (returns exact news publisher photos & edge CDN thumbnails)
- * 2. Wikipedia / Wikimedia API (for recognized global entities, events, leaders)
- * 3. Default category fallback
+ * 1. For historical articles (or titles with past years): Prioritizes Wikipedia / Wikimedia
+ *    which has authentic archival photos for global events from 2000-2026.
+ *    If Wikipedia does not match, uses authentic historical category imagery (NEVER random web scraping).
+ * 2. For live breaking articles: Queries Bing News Search for current publisher editorial photos.
+ * 3. Filtered Web Images Search as fallback for live news only.
  */
 async function resolveSingleStoryImage(article) {
   if (!article || !article.title) return null;
@@ -589,78 +814,43 @@ async function resolveSingleStoryImage(article) {
   const cleanQuery = cleanHeadlineForSearch(article.title);
   if (!cleanQuery) return null;
 
-  // Tier 1: Bing Image Search
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3500);
+  const isHistorical = article.is_live === false ||
+                       /\(\d{4}\)/.test(article.title) ||
+                       (article.published_at && (Date.now() - new Date(article.published_at).getTime()) > 30 * 86400000);
 
-    const searchUrl = `https://www.bing.com/images/search?q=${encodeURIComponent(cleanQuery + ' news')}&form=HDRSC2&first=1`;
-    const res = await fetch(searchUrl, {
-      signal: controller.signal,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9'
-      }
-    });
-    clearTimeout(timeout);
+  let result = null;
 
-    const html = await res.text();
-    const regex = /class="iusc"[^>]*m="([^"]+)"/g;
-    let match;
-
-    while ((match = regex.exec(html)) !== null) {
-      try {
-        const decoded = match[1].replace(/&quot;/g, '"');
-        const obj = JSON.parse(decoded);
-        const murl = obj.murl;
-        const turl = obj.turl ? obj.turl.replace(/&amp;/g, '&') : null;
-
-        if (murl || turl) {
-          const imageUrl = murl || turl;
-          const imageFallback = turl || murl;
-          const result = { imageUrl, imageFallback };
-
-          articleImageCache.set(cacheKey, result);
-          article.image_url = imageUrl;
-          article.image_fallback = imageFallback;
-          article.has_real_image = true;
-          return result;
-        }
-      } catch (_) {}
+  if (isHistorical) {
+    // For historical news: Wikipedia has authentic encyclopedic & editorial photos for every era event
+    result = await fetchFromWikipedia(cleanQuery);
+    if (!result) {
+      // Clean fallback: Use authentic historical category imagery
+      const catKey = (article.category && typeof article.category === 'string') ? article.category.trim() : 'World';
+      const catPool = HISTORICAL_CATEGORY_IMAGES[catKey] || HISTORICAL_CATEGORY_IMAGES.World;
+      const charSum = cleanQuery.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0);
+      const chosenUrl = catPool[charSum % catPool.length];
+      result = {
+        imageUrl: chosenUrl,
+        imageFallback: chosenUrl
+      };
     }
-  } catch (err) {
-    // Silently proceed to Tier 2
+  } else {
+    // For live/current news: Bing News has real photos from today's news agencies
+    result = await fetchFromBingNews(cleanQuery);
+    if (!result) {
+      result = await fetchFromWikipedia(cleanQuery);
+    }
+    if (!result) {
+      result = await fetchFromFilteredWebImages(cleanQuery);
+    }
   }
 
-  // Tier 2: Wikipedia API fallback
-  try {
-    const wikiUrl = `https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(cleanQuery)}&gsrlimit=1&prop=pageimages&pithumbsize=800&format=json&origin=*`;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 2500);
-
-    const wikiRes = await fetch(wikiUrl, {
-      signal: controller.signal,
-      headers: { 'User-Agent': 'NewsReaderApp/1.0' }
-    });
-    clearTimeout(timeout);
-
-    const wikiData = await wikiRes.json();
-    if (wikiData.query && wikiData.query.pages) {
-      const page = Object.values(wikiData.query.pages)[0];
-      if (page && page.thumbnail && page.thumbnail.source) {
-        const imageUrl = page.thumbnail.source;
-        const result = { imageUrl, imageFallback: imageUrl };
-
-        articleImageCache.set(cacheKey, result);
-        article.image_url = imageUrl;
-        article.image_fallback = imageUrl;
-        article.has_real_image = true;
-        return result;
-      }
-    }
-  } catch (err) {
-    // Silently proceed
+  if (result) {
+    articleImageCache.set(cacheKey, result);
+    article.image_url = result.imageUrl;
+    article.image_fallback = result.imageFallback;
+    article.has_real_image = true;
+    return result;
   }
 
   return null;
@@ -674,7 +864,9 @@ async function attachRealImages(articles) {
 
   await Promise.allSettled(
     articles.map(async (art) => {
-      if (art.has_real_image) return;
+      // If it already has an authentic editorial photo (and not unsplash/placeholder), skip
+      const isStockOrEmpty = !art.image_url || art.image_url.includes('unsplash.com') || art.image_url.includes('placeholder');
+      if (!isStockOrEmpty && art.has_real_image) return;
       await resolveSingleStoryImage(art);
     })
   );

@@ -1,0 +1,59 @@
+services:
+  # ----------------------------------------------------------------------------
+  # PostgreSQL Database Container
+  # ----------------------------------------------------------------------------
+  postgres:
+    image: postgres:15-alpine
+    container_name: news-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: newsdb
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      # Map container 5432 to host 5433 to avoid collision if local Windows Postgres is on 5432
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d newsdb"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    networks:
+      - news-net
+
+  # ----------------------------------------------------------------------------
+  # Node.js Express Backend & Web Application Container
+  # ----------------------------------------------------------------------------
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: news-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      PGHOST: news-postgres
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: newsdb
+      DATABASE_URL: postgresql://postgres:postgres@news-postgres:5432/newsdb
+    ports:
+      - "3000:3000"
+    networks:
+      - news-net
+
+networks:
+  news-net:
+    driver: bridge
+
+volumes:
+  pgdata:
+    driver: local

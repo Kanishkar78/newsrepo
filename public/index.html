@@ -29,13 +29,52 @@
     })();
   </script>
 
-  <!-- Auth Guard: Redirect unauthenticated visitors to /login -->
+  <!-- Auth Guard & History Trap: Prevent navigation back to Login or previous page from Dashboard -->
   <script>
     (function() {
-      if (!localStorage.getItem('pulsenews_token')) {
-        var current = window.location.pathname + window.location.search;
-        window.location.replace('/login?redirect=' + encodeURIComponent(current));
+      function checkAuth() {
+        if (!localStorage.getItem('pulsenews_token')) {
+          var current = window.location.pathname + window.location.search;
+          window.location.replace('/login?redirect=' + encodeURIComponent(current));
+          return false;
+        }
+        return true;
       }
+
+      if (!checkAuth()) return;
+
+      window.addEventListener('pageshow', function(e) {
+        checkAuth();
+      });
+
+      // Push active dashboard state into history
+      history.pushState({ page: 'dashboard' }, document.title, location.href);
+
+      // When the user clicks the browser Back button on Dashboard, kill the session immediately
+      window.addEventListener('popstate', function() {
+        var currentToken = localStorage.getItem('pulsenews_token');
+
+        // 1. Immediately wipe client-side session tokens
+        localStorage.removeItem('pulsenews_token');
+        localStorage.removeItem('pulsenews_user');
+
+        // 2. Revoke backend session token
+        if (currentToken) {
+          try {
+            fetch('/api/auth/logout', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + currentToken
+              },
+              keepalive: true
+            });
+          } catch (_) {}
+        }
+
+        // 3. Navigate directly to login with session killed indicator
+        window.location.replace('/login?reason=session_killed');
+      });
     })();
   </script>
 
@@ -170,8 +209,9 @@
             type="date" 
             id="date-filter-input" 
             class="date-filter-input" 
-            aria-label="Filter news by date"
-            title="Filter news by date"
+            min="2000-01-01"
+            aria-label="Filter news by date (2000 to present)"
+            title="Filter news by date (2000 to present)"
           >
           <button id="clear-date-btn" class="clear-date-btn" aria-label="Clear date filter" title="Clear date filter" style="display: none;">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">

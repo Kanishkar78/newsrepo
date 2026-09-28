@@ -27,12 +27,39 @@
       var meta = document.querySelector('meta[name="theme-color"]');
       if (meta) meta.setAttribute('content', theme === 'light' ? '#f8fafc' : '#0a0e17');
       
-      // If already authenticated, redirect to destination immediately
-      if (localStorage.getItem('pulsenews_token')) {
-        var params = new URLSearchParams(window.location.search);
-        var target = params.get('redirect') || '/';
-        window.location.replace(target);
+      // If user navigates back to Login while having an active session, kill the session immediately
+      var existingToken = localStorage.getItem('pulsenews_token');
+      if (existingToken) {
+        localStorage.removeItem('pulsenews_token');
+        localStorage.removeItem('pulsenews_user');
+        sessionStorage.setItem('pulsenews_session_killed', '1');
+        try {
+          fetch('/api/auth/logout', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer ' + existingToken
+            },
+            keepalive: true
+          });
+        } catch (_) {}
       }
+
+      // Handle bfcache back-navigation restore
+      window.addEventListener('pageshow', function(e) {
+        var token = localStorage.getItem('pulsenews_token');
+        if (e.persisted || token) {
+          localStorage.removeItem('pulsenews_token');
+          localStorage.removeItem('pulsenews_user');
+          sessionStorage.setItem('pulsenews_session_killed', '1');
+          var alertEl = document.getElementById('auth-alert');
+          var textEl = document.getElementById('auth-alert-text');
+          if (alertEl && textEl) {
+            textEl.textContent = 'Your session was terminated. Please sign in again.';
+            alertEl.style.display = 'flex';
+          }
+        }
+      });
     })();
   </script>
 
@@ -358,6 +385,12 @@
       const initialTab = urlParams.get('tab') === 'signup' ? 'signup' : 'login';
       setTab(initialTab);
 
+      // Notify user if session was killed by back-navigation
+      if (sessionStorage.getItem('pulsenews_session_killed') || urlParams.get('reason') === 'session_killed') {
+        sessionStorage.removeItem('pulsenews_session_killed');
+        showAlert('Your session was terminated. Please sign in again to access the dashboard.');
+      }
+
       // Password Toggle Visibility
       document.querySelectorAll('.toggle-password-btn').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -419,8 +452,12 @@
           await PulseAuth.login({ email, password });
           showAlert('Signed in successfully! Redirecting...', true);
           setTimeout(() => {
-            window.location.href = redirectUrl;
-          }, 400);
+            var target = redirectUrl;
+            if (!target || target === '/login' || target.startsWith('/login')) {
+              target = '/';
+            }
+            window.location.replace(target);
+          }, 300);
         } catch (err) {
           showAlert(err.message || 'Invalid email or password.');
           setLoading(submitBtn, false);
@@ -665,8 +702,12 @@
           await PulseAuth.register({ name, email, password });
           showAlert('Account created! Welcome to PulseNews...', true);
           setTimeout(() => {
-            window.location.href = redirectUrl;
-          }, 400);
+            var target = redirectUrl;
+            if (!target || target === '/login' || target.startsWith('/login')) {
+              target = '/';
+            }
+            window.location.replace(target);
+          }, 300);
         } catch (err) {
           showAlert(err.message || 'Registration failed.');
           setLoading(submitBtn, false);

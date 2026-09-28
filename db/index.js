@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { getLiveNews, getCachedLiveArticle, clearLiveCache, translateText, translateBatch, attachRealImages, EDITIONS } = require('../services/liveNewsService');
 const { generateFullArticleContent, detectArticleLanguage } = require('../services/articleContentService');
+const { generateHistoricalArticlesForDate } = require('../services/historicalArchiveService');
 require('dotenv').config({ path: path.join(__dirname, '../.env') });
 
 let pool = null;
@@ -10,58 +11,78 @@ let isDbConnected = false;
 
 // Resolve connection settings from DATABASE_URL or individual PG* env vars
 function initPool() {
-  const dbUrl = process.env.DATABASE_URL || '';
-  const pwd = process.env.PGPASSWORD || '';
+  let dbUrl = process.env.DATABASE_URL || '';
+  let user = process.env.PGUSER || 'postgres';
+  let password = process.env.PGPASSWORD || '';
+  let host = process.env.PGHOST || 'localhost';
+  let port = parseInt(process.env.PGPORT, 10) || 5432;
+  let database = process.env.PGDATABASE || 'newsdb';
 
-  // Skip connecting if password is still placeholder
-  if (dbUrl.includes('your_password_here') || pwd === 'your_password_here') {
+  if (dbUrl && dbUrl.includes('://')) {
+    try {
+      const parsed = new URL(dbUrl);
+      user = decodeURIComponent(parsed.username) || user;
+      password = decodeURIComponent(parsed.password) || password;
+      host = parsed.hostname || host;
+      port = parseInt(parsed.port, 10) || port;
+      if (parsed.pathname && parsed.pathname.length > 1) {
+        database = parsed.pathname.substring(1);
+      }
+    } catch (_) {}
+  }
+
+  // Explicit env vars take priority
+  if (process.env.PGPASSWORD) password = process.env.PGPASSWORD;
+  if (process.env.PGUSER) user = process.env.PGUSER;
+  if (process.env.PGHOST) host = process.env.PGHOST;
+  if (process.env.PGPORT) port = parseInt(process.env.PGPORT, 10);
+  if (process.env.PGDATABASE) database = process.env.PGDATABASE;
+
+  if (password === 'your_password_here') {
     return null;
   }
 
-  if (pwd) {
-    return new Pool({
-      user: process.env.PGUSER || 'postgres',
-      password: pwd,
-      host: process.env.PGHOST || 'localhost',
-      port: parseInt(process.env.PGPORT, 10) || 5432,
-      database: process.env.PGDATABASE || 'newsdb',
-      ssl: false
-    });
-  }
-
-  if (dbUrl && dbUrl.startsWith('postgres')) {
-    return new Pool({
-      connectionString: dbUrl,
-      ssl: process.env.NODE_ENV === 'production' || dbUrl.includes('neon.tech') || dbUrl.includes('render.com') 
-        ? { rejectUnauthorized: false } 
-        : false
-    });
-  }
-
-  return null;
+  return new Pool({
+    user,
+    password,
+    host,
+    port,
+    database,
+    ssl: (process.env.NODE_ENV === 'production' && !host.includes('localhost') && !host.includes('postgres')) 
+      ? { rejectUnauthorized: false } 
+      : false
+  });
 }
 
 pool = initPool();
 
-// Auto-verify and create table if connected
-if (pool) {
-  pool.query('SELECT 1;')
-    .then(() => {
+// Auto-verify and create table if connected with retry for container startup
+async function verifyAndInitDb(retries = 8, delayMs = 2000) {
+  if (!pool) return;
+  for (let i = 0; i < retries; i++) {
+    try {
+      await pool.query('SELECT 1;');
       isDbConnected = true;
       console.log('✅ PostgreSQL connection established to "newsdb".');
       
-      // Auto-apply schema if table does not exist
-      const schemaSql = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
-      return pool.query(schemaSql);
-    })
-    .then(() => {
-      console.log('✅ PostgreSQL table "news" verified and ready in "newsdb".');
-    })
-    .catch((err) => {
+      const schemaPath = path.join(__dirname, 'schema.sql');
+      if (fs.existsSync(schemaPath)) {
+        const schemaSql = fs.readFileSync(schemaPath, 'utf8');
+        await pool.query(schemaSql);
+        console.log('✅ PostgreSQL table "news" verified and ready in "newsdb".');
+      }
+      return;
+    } catch (err) {
       isDbConnected = false;
-      console.warn('⚠️ PostgreSQL connection to "newsdb" not active:', err.message);
-    });
+      console.warn(`⚠️ PostgreSQL connection attempt ${i + 1}/${retries} waiting: ${err.message}`);
+      if (i < retries - 1) {
+        await new Promise(res => setTimeout(res, delayMs));
+      }
+    }
+  }
 }
+
+verifyAndInitDb();
 
 // In-memory fallback dataset for offline or unconfigured testing
 const mockNews = [
@@ -212,64 +233,137 @@ function matchesDate(publishedAt, targetDate) {
   if (!publishedAt) return false;
   const d = new Date(publishedAt);
   if (isNaN(d.getTime())) return false;
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  const localDate = `${yyyy}-${mm}-${dd}`;
-  const utcDate = d.toISOString().split('T')[0];
+  const yyyy = d.getUTCFullYear();
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  const utcDate = `${yyyy}-${mm}-${dd}`;
+  const localDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   return localDate === targetDate || utcDate === targetDate;
+}
+
+/**
+ * Helper to determine if a requested date is a historical archive date (>1 day in the past)
+ */
+function isHistoricalDate(dateStr) {
+  if (!dateStr || typeof dateStr !== 'string') return false;
+  const target = new Date(dateStr);
+  if (isNaN(target.getTime())) return false;
+  const now = new Date();
+  const diffDays = (now.getTime() - target.getTime()) / (1000 * 60 * 60 * 24);
+  return diffDays > 1;
 }
 
 /**
  * Main Get News API function
  * Reads live feeds, persists into PostgreSQL 'newsdb', and queries database.
+ * Supports all historical dates from year 2000 to the present with automated archive generation.
  */
 async function getNews({ category, search, edition = 'en-us', page = 1, limit = 10, forceRefresh = false, date } = {}) {
   const pageNum = parseInt(page, 10) || 1;
   const limitNum = parseInt(limit, 10) || 10;
   const offset = (pageNum - 1) * limitNum;
   const cleanDate = date && typeof date === 'string' && date.trim() !== '' ? date.trim() : null;
+  const isHistorical = isHistoricalDate(cleanDate);
 
-  // 1. Fetch live worldwide news for requested edition
-  try {
-    let liveArticles = await getLiveNews({ category, search, edition, forceRefresh });
+  // 1. Fetch live worldwide news for recent / live requests (not for historical archives)
+  if (!isHistorical) {
+    try {
+      let liveArticles = await getLiveNews({ category, search, edition, forceRefresh });
 
-    if (liveArticles && liveArticles.length > 0) {
-      // Continuously persist live articles to PostgreSQL 'newsdb' in the background
-      syncArticlesToDb(liveArticles, edition).catch(() => {});
+      if (liveArticles && liveArticles.length > 0) {
+        // Continuously persist live articles to PostgreSQL 'newsdb' in the background
+        syncArticlesToDb(liveArticles, edition).catch(() => {});
 
-      if (cleanDate) {
-        liveArticles = liveArticles.filter(art => matchesDate(art.published_at, cleanDate));
+        if (cleanDate) {
+          liveArticles = liveArticles.filter(art => matchesDate(art.published_at, cleanDate));
+        }
+
+        // If we have matching live articles for this date/filter, return them
+        if (liveArticles.length > 0) {
+          const total = liveArticles.length;
+          const paginatedData = liveArticles.slice(offset, offset + limitNum);
+
+          // Attach real news photos for current page
+          await attachRealImages(paginatedData).catch(() => {});
+
+          return {
+            data: paginatedData,
+            is_live: true,
+            source_db: pool ? 'newsdb (syncing)' : 'in-memory',
+            pagination: {
+              total,
+              page: pageNum,
+              limit: limitNum,
+              totalPages: Math.ceil(total / limitNum) || 1
+            }
+          };
+        }
       }
-
-      // If we have matching live articles for this date/filter, return them
-      if (liveArticles.length > 0) {
-        const total = liveArticles.length;
-        const paginatedData = liveArticles.slice(offset, offset + limitNum);
-
-        // Attach real news photos for current page
-        await attachRealImages(paginatedData).catch(() => {});
-
-        return {
-          data: paginatedData,
-          is_live: true,
-          source_db: pool ? 'newsdb (syncing)' : 'in-memory',
-          pagination: {
-            total,
-            page: pageNum,
-            limit: limitNum,
-            totalPages: Math.ceil(total / limitNum) || 1
-          }
-        };
-      }
+    } catch (liveErr) {
+      console.warn('Live news feed unavailable, querying PostgreSQL "newsdb":', liveErr.message);
     }
-  } catch (liveErr) {
-    console.warn('Live news feed unavailable, querying PostgreSQL "newsdb":', liveErr.message);
   }
 
-  // 2. Query PostgreSQL 'newsdb'
+  // 2. Query PostgreSQL 'newsdb' (with auto-generation for historical archive dates)
   if (pool) {
     try {
+      // If historical date requested, ensure archive records exist in database for this specific edition
+      if (cleanDate) {
+        const targetEdition = (edition && edition !== 'all') ? edition : 'en-us';
+        const checkRes = await pool.query(
+          `SELECT COUNT(*) FROM news 
+           WHERE (DATE(published_at) = $1 OR DATE(published_at AT TIME ZONE 'UTC') = $1)
+             AND (edition = $2 OR ($3 = 'all' AND edition = 'en-us'))`,
+          [cleanDate, targetEdition, edition || 'en-us']
+        );
+        const existingCount = parseInt(checkRes.rows[0].count, 10);
+
+        if (existingCount < 6 || forceRefresh) {
+          const historicalArticles = await generateHistoricalArticlesForDate(cleanDate, targetEdition);
+          if (historicalArticles && historicalArticles.length > 0) {
+            for (const art of historicalArticles) {
+              await pool.query(`
+                INSERT INTO news (
+                  title, description, content, image_url, image_fallback,
+                  category, source, source_url, author, edition, is_live, published_at
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+              `, [
+                art.title,
+                art.description,
+                art.content,
+                art.image_url,
+                art.image_fallback,
+                art.category,
+                art.source,
+                art.source_url,
+                art.author,
+                art.edition,
+                false,
+                art.published_at
+              ]).catch(() => {});
+            }
+          }
+
+          // If edition === 'all', also generate for other primary editions so 'All News' shows rich diversity
+          if (edition === 'all') {
+            for (const ed of ['ta-in', 'hi-in']) {
+              const extraArts = await generateHistoricalArticlesForDate(cleanDate, ed);
+              for (const art of (extraArts || []).slice(0, 4)) {
+                await pool.query(`
+                  INSERT INTO news (
+                    title, description, content, image_url, image_fallback,
+                    category, source, source_url, author, edition, is_live, published_at
+                  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                `, [
+                  art.title, art.description, art.content, art.image_url, art.image_fallback,
+                  art.category, art.source, art.source_url, art.author, art.edition, false, art.published_at
+                ]).catch(() => {});
+              }
+            }
+          }
+        }
+      }
+
       let conditions = [];
       let params = [];
       let paramIdx = 1;
@@ -291,8 +385,9 @@ async function getNews({ category, search, edition = 'en-us', page = 1, limit = 
       }
 
       if (cleanDate) {
-        conditions.push(`DATE(published_at) = $${paramIdx++}`);
+        conditions.push(`(DATE(published_at) = $${paramIdx} OR DATE(published_at AT TIME ZONE 'UTC') = $${paramIdx})`);
         params.push(cleanDate);
+        paramIdx++;
       }
 
       const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -310,10 +405,25 @@ async function getNews({ category, search, edition = 'en-us', page = 1, limit = 
       `;
       const dataResult = await pool.query(dataQuery, dataParams);
 
+      // Attach authentic editorial photos for this page
+      await attachRealImages(dataResult.rows).catch(() => {});
+
+      // Persist newly resolved real images back to PostgreSQL in the background
+      if (pool) {
+        for (const art of dataResult.rows) {
+          if (art.has_real_image && art.image_url && !art.image_url.includes('unsplash.com')) {
+            pool.query(
+              'UPDATE news SET image_url = $1, image_fallback = $2 WHERE id = $3',
+              [art.image_url, art.image_fallback, art.id.toString()]
+            ).catch(() => {});
+          }
+        }
+      }
+
       return {
         data: dataResult.rows,
         is_live: false,
-        source_db: 'newsdb',
+        source_db: isHistorical ? 'newsdb (archive)' : 'newsdb',
         pagination: {
           total: totalCount,
           page: pageNum,
@@ -326,16 +436,22 @@ async function getNews({ category, search, edition = 'en-us', page = 1, limit = 
     }
   }
 
-  // 3. In-memory fallback
-  let filtered = [...mockNews];
+  // 3. In-memory fallback (supports full archive dates)
+  let fallbackData = [];
+  if (cleanDate) {
+    const targetEdition = (edition && edition !== 'all') ? edition : 'en-us';
+    fallbackData = await generateHistoricalArticlesForDate(cleanDate, targetEdition);
+  } else {
+    fallbackData = [...mockNews];
+  }
 
   if (category && category.toLowerCase() !== 'all') {
-    filtered = filtered.filter(item => item.category.toLowerCase() === category.toLowerCase());
+    fallbackData = fallbackData.filter(item => item.category.toLowerCase() === category.toLowerCase());
   }
 
   if (search && search.trim() !== '') {
     const q = search.trim().toLowerCase();
-    filtered = filtered.filter(item => 
+    fallbackData = fallbackData.filter(item => 
       item.title.toLowerCase().includes(q) ||
       item.description.toLowerCase().includes(q) ||
       item.content.toLowerCase().includes(q)
@@ -343,18 +459,21 @@ async function getNews({ category, search, edition = 'en-us', page = 1, limit = 
   }
 
   if (cleanDate) {
-    filtered = filtered.filter(item => matchesDate(item.published_at, cleanDate));
+    fallbackData = fallbackData.filter(item => matchesDate(item.published_at, cleanDate));
   }
 
-  filtered.sort((a, b) => new Date(b.published_at) - new Date(a.published_at));
+  fallbackData.sort((a, b) => new Date(b.published_at) - new Date(a.published_at));
 
-  const total = filtered.length;
-  const paginatedData = filtered.slice(offset, offset + limitNum);
+  const total = fallbackData.length;
+  const paginatedData = fallbackData.slice(offset, offset + limitNum);
+
+  // Attach authentic editorial photos for in-memory fallback
+  await attachRealImages(paginatedData).catch(() => {});
 
   return {
     data: paginatedData,
     is_live: false,
-    source_db: 'mock',
+    source_db: isHistorical ? 'in-memory archive' : 'mock',
     pagination: {
       total,
       page: pageNum,
@@ -446,7 +565,15 @@ async function getNewsById(id) {
     try {
       const result = await pool.query('SELECT * FROM news WHERE id = $1', [numericId.toString()]);
       if (result.rows.length > 0) {
-        return await ensureFullContent(result.rows[0]);
+        const art = result.rows[0];
+        await attachRealImages([art]).catch(() => {});
+        if (art.has_real_image && art.image_url && !art.image_url.includes('unsplash.com')) {
+          pool.query(
+            'UPDATE news SET image_url = $1, image_fallback = $2 WHERE id = $3',
+            [art.image_url, art.image_fallback, art.id.toString()]
+          ).catch(() => {});
+        }
+        return await ensureFullContent(art);
       }
     } catch (err) {
       console.warn('PostgreSQL getNewsById error:', err.message);
@@ -465,6 +592,9 @@ async function getNewsById(id) {
 
   // 4. Fallback to mock dataset
   const mockArt = mockNews.find(item => item.id === numericId) || null;
+  if (mockArt) {
+    await attachRealImages([mockArt]).catch(() => {});
+  }
   return await ensureFullContent(mockArt);
 }
 

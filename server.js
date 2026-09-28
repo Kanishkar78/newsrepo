@@ -12,8 +12,12 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// Serve static frontend files
-app.use(express.static(path.join(__dirname, 'public')));
+const fs = require('fs');
+
+// Determine static frontend directory (React build in client/dist if present, else public)
+const clientDist = path.join(__dirname, 'client', 'dist');
+const staticPath = fs.existsSync(clientDist) ? clientDist : path.join(__dirname, 'public');
+app.use(express.static(staticPath));
 
 // Helper to extract bearer token from headers
 function extractToken(req) {
@@ -247,21 +251,17 @@ app.get('/api/news/:id', async (req, res) => {
   }
 });
 
-// HTML Routes
-app.get('/login', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'login.html'));
-});
-
-app.get('/signup', (req, res) => {
-  res.redirect('/login?tab=signup');
-});
-
-app.get('/article', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'article.html'));
-});
-
+// HTML / SPA Routes
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  if (fs.existsSync(path.join(clientDist, 'index.html'))) {
+    res.sendFile(path.join(clientDist, 'index.html'));
+  } else if (req.path === '/login') {
+    res.sendFile(path.join(__dirname, 'public', 'login.html'));
+  } else if (req.path === '/article') {
+    res.sendFile(path.join(__dirname, 'public', 'article.html'));
+  } else {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  }
 });
 
 if (require.main === module) {
